@@ -25,12 +25,16 @@
       <span id="soil-label">Waiting for sensor</span>
     </div>
     <div class="hdr-status">
-      <div class="data-indicator" id="data-indicator">
-        <span class="indicator-dot" id="indicator-dot"></span>
-        <span id="data-time">No data</span>
+      <div class="status-row">
+        <span class="status-label">Server</span>
+        <span class="dot" id="status-dot"></span>
+        <span class="status-text" id="status-txt">Connecting</span>
       </div>
-      <span class="dot" id="status-dot"></span>
-      <span class="status-text" id="status-txt">Connecting</span>
+      <div class="status-row">
+        <span class="status-label">ESP32</span>
+        <span class="dot" id="esp-dot"></span>
+        <span class="status-text" id="esp-txt">No data</span>
+      </div>
       <span class="clock" id="clock"></span>
     </div>
   </div>

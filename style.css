@@ -63,23 +63,19 @@ header{
 }
 
 .hdr-status{
-  display:flex;align-items:center;gap:8px;
+  display:flex;align-items:center;gap:12px;
 }
 
-.data-indicator{
+.status-row{
   display:flex;align-items:center;gap:6px;
   padding:4px 10px;border-radius:6px;
   background:var(--surf2);
-  font-size:0.75rem;color:var(--muted);
 }
 
-.indicator-dot{
-  width:6px;height:6px;border-radius:50%;
-  background:var(--muted);
+.status-label{
+  font-size:0.7rem;color:var(--muted);
+  text-transform:uppercase;letter-spacing:0.05em;
 }
-.indicator-dot.live{background:var(--green)}
-.indicator-dot.stale{background:var(--orange)}
-.indicator-dot.offline{background:var(--red)}
 
 .dot{
   width:8px;height:8px;border-radius:50%;
@@ -88,7 +84,7 @@ header{
 .dot.online{background:var(--green)}
 .dot.offline{background:var(--red)}
 
-.status-text{font-size:0.8rem;color:var(--muted)}
+.status-text{font-size:0.8rem;color:var(--text)}
 
 .clock{
   font-family:monospace;
