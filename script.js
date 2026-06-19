@@ -10,6 +10,7 @@ let evtSrc      = null;
 let rTimer      = null;
 let countdownInterval = null;
 let countdownEndTime  = null;
+let currentConfig = { wateringMinutes: 3 };
 
 // ── XSS Protection ────────────────────────────
 function escapeHtml(str) {
@@ -483,6 +484,7 @@ function clampConfig(cfg) {
 function loadConfig() {
   fetch('/api/config').then(r => r.json()).then(cfg => {
     const c = clampConfig(cfg);
+    currentConfig = c;
     document.getElementById('cfg-threshold').value = c.openThreshold;
     document.getElementById('cfg-threshold-val').textContent = c.openThreshold;
     document.getElementById('cfg-duration').value = c.wateringMinutes;
@@ -528,6 +530,7 @@ function saveConfig(data) {
 // ── Threshold Slider ─────────────────────────
 document.getElementById('cfg-threshold').addEventListener('input', e => {
   const val = parseInt(e.target.value);
+  currentConfig.openThreshold = val;
   document.getElementById('cfg-threshold-val').textContent = val;
   updatePresetActive('threshold-presets', val);
   clearTimeout(saveTimer);
@@ -537,6 +540,7 @@ document.getElementById('cfg-threshold').addEventListener('input', e => {
 // ── Duration Slider ──────────────────────────
 document.getElementById('cfg-duration').addEventListener('input', e => {
   const val = parseInt(e.target.value);
+  currentConfig.wateringMinutes = val;
   document.getElementById('cfg-duration-val').textContent = val;
   updatePresetActive('duration-presets', val);
   clearTimeout(saveTimer);
@@ -582,12 +586,18 @@ document.getElementById('reset-wifi-btn').addEventListener('click', () => {
 // Handle SSE config updates from other clients
 function handleConfigUpdate(cfg) {
   const c = clampConfig(cfg);
+  currentConfig = c;
   document.getElementById('cfg-threshold').value = c.openThreshold;
   document.getElementById('cfg-threshold-val').textContent = c.openThreshold;
   document.getElementById('cfg-duration').value = c.wateringMinutes;
   document.getElementById('cfg-duration-val').textContent = c.wateringMinutes;
   updatePresetActive('threshold-presets', c.openThreshold);
   updatePresetActive('duration-presets', c.wateringMinutes);
+  
+  // Restart countdown if valve is currently open
+  if (lastValveState === 'OPEN' && countdownInterval) {
+    startCountdown(c.wateringMinutes);
+  }
 }
 
 // ── Guide ─────────────────────────────────────
