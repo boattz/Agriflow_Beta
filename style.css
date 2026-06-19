@@ -643,6 +643,28 @@ tbody tr.new-row{animation:rowFlash .8s ease}
 }
 .card-valve.watering .card-tag{color:var(--green)}
 
+/* ── Card Offline State ── */
+.card-offline{
+  opacity:.6;
+  border-color:rgba(255,71,87,.2) !important;
+  pointer-events:none;
+}
+.card-offline::after{
+  content:'OFFLINE';
+  position:absolute;top:12px;right:12px;
+  padding:3px 10px;border-radius:100px;
+  background:rgba(255,71,87,.15);
+  border:1px solid rgba(255,71,87,.3);
+  font-size:.6rem;font-weight:800;
+  color:var(--red);letter-spacing:.08em;
+  z-index:5;
+  animation:offlineFadeIn .3s ease;
+}
+@keyframes offlineFadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.card-offline .ring-val,.card-offline .raw-val,.card-offline .weather-val,
+.card-offline .mini-val,.card-offline .valve-status{opacity:.5}
+.card-offline .valve-circle{filter:grayscale(.6)}
+
 /* ── Countdown Responsive ── */
 @media(max-width:360px){
   .countdown-ring{width:80px;height:80px}

@@ -258,6 +258,7 @@ function updateDataIndicator() {
   if (!lastReadingTime) {
     indicator.className = 'data-indicator';
     timeEl.textContent = 'No data';
+    updateCardOfflineStates(true);
     return;
   }
   
@@ -265,6 +266,7 @@ function updateDataIndicator() {
   const diff = Math.floor((now - lastReadingTime) / 1000);
   
   let text, className;
+  let isOffline = false;
   if (diff < 10) {
     text = 'Live';
     className = 'data-indicator active';
@@ -277,10 +279,32 @@ function updateDataIndicator() {
   } else {
     text = 'Offline';
     className = 'data-indicator dead';
+    isOffline = true;
   }
   
   timeEl.textContent = text;
   indicator.className = className;
+  updateCardOfflineStates(isOffline);
+}
+
+function updateCardOfflineStates(isOffline) {
+  const cards = ['card-moisture', 'card-valve', 'card-weather', 'card-config'];
+  cards.forEach(id => {
+    const card = document.getElementById(id);
+    if (card) {
+      if (isOffline) {
+        card.classList.add('card-offline');
+      } else {
+        card.classList.remove('card-offline');
+      }
+    }
+  });
+  
+  // Update valve sub text
+  const valveSub = document.getElementById('valve-sub');
+  if (valveSub && isOffline && lastValveState !== 'OPEN') {
+    valveSub.textContent = 'Sensor offline — no data';
+  }
 }
 
 // Update indicators every second
