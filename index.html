@@ -117,6 +117,22 @@
         <div class="valve-status" id="valve-status">CLOSE</div>
         <div class="valve-sub" id="valve-sub">Waiting for data...</div>
       </div>
+
+      <!-- Countdown Timer (shown during watering) -->
+      <div class="countdown-wrap" id="countdown-wrap" hidden>
+        <div class="countdown-ring">
+          <svg class="countdown-svg" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="6"/>
+            <circle id="countdown-arc" cx="50" cy="50" r="42" fill="none" stroke="var(--green)" stroke-width="6" stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="0" transform="rotate(-90 50 50)" style="transition: stroke-dashoffset 1s linear"/>
+          </svg>
+          <div class="countdown-center">
+            <div class="countdown-val" id="countdown-val">--</div>
+            <div class="countdown-label">sec left</div>
+          </div>
+        </div>
+        <div class="countdown-text" id="countdown-text">Watering in progress...</div>
+      </div>
+
       <div class="raw-display">
         <div class="raw-label">Analog Raw Value</div>
         <div class="raw-val" id="raw-val">--</div>

@@ -8,6 +8,8 @@ let totalCount  = 0;
 let chart       = null;
 let evtSrc      = null;
 let rTimer      = null;
+let countdownInterval = null;
+let countdownEndTime  = null;
 
 // ── XSS Protection ────────────────────────────
 function escapeHtml(str) {
@@ -91,7 +93,9 @@ const valveIcons = {
 };
 
 // ── Valve ─────────────────────────────────────
-function updateValve(valve) {
+let lastValveState = 'CLOSE';
+
+function updateValve(valve, wateringMinutes) {
   const circle = document.getElementById('valve-circle');
   const iconEl = document.getElementById('valve-emoji');
   const status = document.getElementById('valve-status');
@@ -107,12 +111,82 @@ function updateValve(valve) {
   circle.style.boxShadow  = isOpen ? '0 0 30px rgba(46,213,115,.5)' : '0 0 30px rgba(255,71,87,.3)';
   sub.textContent = isOpen ? 'Watering in progress...' : 'Idle — waiting for dry soil';
 
-  if (isOpen) { ripple.classList.add('active'); wrap.classList.add('watering'); }
-  else        { ripple.classList.remove('active'); wrap.classList.remove('watering'); }
+  if (isOpen) {
+    ripple.classList.add('active');
+    wrap.classList.add('watering');
+    document.getElementById('card-valve').classList.add('watering');
+    if (lastValveState !== 'OPEN' && wateringMinutes) {
+      startCountdown(wateringMinutes);
+    }
+  } else {
+    ripple.classList.remove('active');
+    wrap.classList.remove('watering');
+    document.getElementById('card-valve').classList.remove('watering');
+    stopCountdown();
+  }
+  
+  lastValveState = valve;
 }
 
 function updateRaw(raw) {
   document.getElementById('raw-val').textContent = raw !== null ? raw : '--';
+}
+
+// ── Countdown Timer ────────────────────────────
+const COUNTDOWN_CIRC = 264;
+
+function startCountdown(durationMinutes) {
+  const totalSeconds = durationMinutes * 60;
+  countdownEndTime = Date.now() + (totalSeconds * 1000);
+  
+  const wrap = document.getElementById('countdown-wrap');
+  const arcEl = document.getElementById('countdown-arc');
+  const valEl = document.getElementById('countdown-val');
+  const textEl = document.getElementById('countdown-text');
+  
+  wrap.hidden = false;
+  wrap.classList.remove('warning', 'critical');
+  
+  if (countdownInterval) clearInterval(countdownInterval);
+  
+  countdownInterval = setInterval(() => {
+    const remaining = Math.max(0, Math.floor((countdownEndTime - Date.now()) / 1000));
+    const minutes = Math.floor(remaining / 60);
+    const seconds = remaining % 60;
+    
+    valEl.textContent = `${minutes}:${String(seconds).padStart(2, '0')}`;
+    
+    const progress = 1 - (remaining / totalSeconds);
+    arcEl.style.strokeDashoffset = COUNTDOWN_CIRC * progress;
+    
+    wrap.classList.remove('warning', 'critical');
+    if (remaining <= 10) {
+      wrap.classList.add('critical');
+      textEl.textContent = 'Valve closing soon...';
+    } else if (remaining <= 30) {
+      wrap.classList.add('warning');
+      textEl.textContent = 'Almost done watering...';
+    } else {
+      textEl.textContent = 'Watering in progress...';
+    }
+    
+    if (remaining <= 0) {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
+      setTimeout(() => { wrap.hidden = true; }, 1500);
+    }
+  }, 1000);
+  
+  document.getElementById('countdown-val').textContent = `${durationMinutes}:00`;
+}
+
+function stopCountdown() {
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+    countdownInterval = null;
+  }
+  document.getElementById('countdown-wrap').hidden = true;
+  document.getElementById('countdown-wrap').classList.remove('warning', 'critical');
 }
 
 // ── Weather (DHT) ─────────────────────────────
@@ -326,8 +400,9 @@ function processReading(reading) {
   history.unshift(reading);
   if (history.length > 200) history.pop();
 
+  const wateringMinutes = reading.config ? reading.config.wateringMinutes : 3;
   if (reading.level) updateRing(parseFloat(reading.moisture), reading.level.color);
-  updateValve(reading.valve);
+  updateValve(reading.valve, wateringMinutes);
   updateRaw(reading.raw);
   if (reading.level) setSoilLevel(reading.level);
   updateMini(reading);
@@ -354,8 +429,9 @@ function connectSSE() {
           history = msg.data.history;
           totalCount = history.length;
           const r = history[0];
+          const wateringMinutes = msg.data.config ? msg.data.config.wateringMinutes : 3;
           if (r.level) updateRing(parseFloat(r.moisture), r.level.color);
-          updateValve(r.valve);
+          updateValve(r.valve, wateringMinutes);
           updateRaw(r.raw);
           if (r.level) setSoilLevel(r.level);
           updateMini(r);

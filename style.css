@@ -264,6 +264,38 @@ main{
 .valve-status{font-size:1.4rem;font-weight:900;letter-spacing:.1em;color:var(--red);transition:color .4s ease}
 .valve-sub{font-size:.75rem;color:var(--muted);text-align:center}
 
+/* ── Countdown Timer ── */
+.countdown-wrap{
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+  padding:16px;margin:8px 0 12px;
+  background:rgba(46,213,115,.05);border:1px solid rgba(46,213,115,.2);
+  border-radius:14px;
+  animation:countdownFadeIn .4s ease;
+}
+@keyframes countdownFadeIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.countdown-ring{position:relative;width:100px;height:100px}
+.countdown-svg{width:100%;height:100%}
+.countdown-center{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+}
+.countdown-val{
+  font-family:'Space Mono',monospace;
+  font-size:1.8rem;font-weight:700;color:var(--green);line-height:1;
+}
+.countdown-label{font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+.countdown-text{font-size:.78rem;color:var(--green);font-weight:600;text-align:center}
+.countdown-wrap.warning{border-color:rgba(255,165,2,.3);background:rgba(255,165,2,.05)}
+.countdown-wrap.warning .countdown-val{color:var(--orange)}
+.countdown-wrap.warning .countdown-text{color:var(--orange)}
+.countdown-wrap.warning #countdown-arc{stroke:var(--orange)}
+.countdown-wrap.critical{border-color:rgba(255,71,87,.3);background:rgba(255,71,87,.05)}
+.countdown-wrap.critical .countdown-val{color:var(--red)}
+.countdown-wrap.critical .countdown-text{color:var(--red)}
+.countdown-wrap.critical #countdown-arc{stroke:var(--red)}
+@keyframes countdownPulse{0%,100%{opacity:1}50%{opacity:.6}}
+.countdown-wrap.critical .countdown-val{animation:countdownPulse 1s ease infinite}
+
 /* ── Raw ADC ── */
 .raw-display{
   text-align:center;padding:14px 16px;
@@ -603,6 +635,20 @@ tbody tr.new-row{animation:rowFlash .8s ease}
 /* ── Card flash ── */
 @keyframes cardFlash{0%{border-color:var(--green);box-shadow:0 0 0 2px rgba(46,213,115,.25)}100%{border-color:var(--border);box-shadow:none}}
 .flash{animation:cardFlash 1.2s ease forwards}
+
+/* ── Valve Card Watering Glow ── */
+.card-valve.watering{
+  border-color:rgba(46,213,115,.3);
+  box-shadow:0 0 30px rgba(46,213,115,.1);
+}
+.card-valve.watering .card-tag{color:var(--green)}
+
+/* ── Countdown Responsive ── */
+@media(max-width:360px){
+  .countdown-ring{width:80px;height:80px}
+  .countdown-val{font-size:1.4rem}
+  .countdown-wrap{padding:12px;margin:6px 0 10px}
+}
 
 /* ── Smooth Transitions ── */
 *{transition-property:none}
