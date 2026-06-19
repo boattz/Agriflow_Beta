@@ -288,7 +288,7 @@ function updateDataIndicator() {
 }
 
 function updateCardOfflineStates(isOffline) {
-  const cards = ['card-moisture', 'card-valve', 'card-weather', 'card-config'];
+  const cards = ['card-moisture', 'card-valve', 'card-weather'];
   cards.forEach(id => {
     const card = document.getElementById(id);
     if (card) {
@@ -304,6 +304,11 @@ function updateCardOfflineStates(isOffline) {
   const valveSub = document.getElementById('valve-sub');
   if (valveSub && isOffline && lastValveState !== 'OPEN') {
     valveSub.textContent = 'Sensor offline — no data';
+  }
+  
+  // Stop countdown when offline
+  if (isOffline) {
+    stopCountdown();
   }
 }
 
