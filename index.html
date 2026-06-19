@@ -3,364 +3,216 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Agriflow | IoT Monitoring System</title>
-  <meta name="description" content="Real-time ESP32 soil moisture and smart valve control dashboard"/>
+  <title>Agriflow</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>"/>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
-<!-- Skip Link (Accessibility) -->
-<a href="#main-content" class="skip-link">Skip to main content</a>
-
-<!-- ARIA Live Region for announcements -->
-<div id="aria-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
-
-<div class="bg-canvas">
-  <div class="bg-blob b1"></div>
-  <div class="bg-blob b2"></div>
-  <div class="bg-blob b3"></div>
-  <div class="bg-particles" id="bg-particles"></div>
-</div>
+<a href="#main" class="skip-link">Skip to main</a>
+<div id="aria-live" class="sr-only" aria-live="polite"></div>
 
 <header>
   <div class="hdr">
     <div class="logo">
-      <div class="logo-ring" aria-hidden="true">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/></svg>
+      <div class="logo-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/></svg>
       </div>
-      <div>
-        <div class="logo-title">Agriflow<b>IoT</b></div>
-        <div class="logo-sub">ESP32 Smart Watering System</div>
-      </div>
+      <div class="logo-text">Agriflow<span>IoT</span></div>
     </div>
-    <div class="hdr-center" id="soil-banner" aria-label="Soil moisture status">
-      <span id="soil-icon" aria-hidden="true">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      </span>
-      <span id="soil-label">Waiting for sensor…</span>
+    <div class="hdr-soil" id="soil-banner">
+      <span id="soil-label">Waiting for sensor</span>
     </div>
-    <div class="hdr-right">
-      <div class="status-chip" id="status-chip" role="status" aria-label="Connection status">
-        <span class="dot" id="status-dot" aria-hidden="true"></span>
-        <span id="status-txt">Connecting</span>
-      </div>
-      <div class="data-indicator" id="data-indicator" aria-label="Last data received">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+    <div class="hdr-status">
+      <div class="data-indicator" id="data-indicator">
+        <span class="indicator-dot" id="indicator-dot"></span>
         <span id="data-time">No data</span>
       </div>
-      <div class="clock" id="clock" aria-label="Current time"></div>
+      <span class="dot" id="status-dot"></span>
+      <span class="status-text" id="status-txt">Connecting</span>
+      <span class="clock" id="clock"></span>
     </div>
   </div>
 </header>
 
-<main id="main-content">
+<main id="main">
 
-  <!-- Section: Sensor Data -->
-  <div class="section-header"><h3>Sensor Data</h3></div>
+  <div class="grid-2">
 
-  <!-- Row 1 -->
-  <section class="row row-top">
-
-    <!-- Moisture Ring -->
-    <div class="card card-moisture" id="card-moisture">
-      <div class="card-tag">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/></svg>
-        Soil Moisture
-      </div>
-      <div class="ring-wrap">
-        <svg class="ring-svg" viewBox="0 0 200 200">
-          <defs>
-            <linearGradient id="hGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#2ed573"/>
-              <stop offset="100%" stop-color="#00d2ff"/>
-            </linearGradient>
-          </defs>
-          <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="14" stroke-dasharray="502" stroke-dashoffset="0" stroke-linecap="round" transform="rotate(-225 100 100)"/>
-          <circle id="ring-arc" cx="100" cy="100" r="80" fill="none" stroke="url(#hGrad)" stroke-width="14" stroke-dasharray="502" stroke-dashoffset="502" stroke-linecap="round" transform="rotate(-225 100 100)" style="transition: stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1)"/>
+    <!-- Moisture -->
+    <div class="card moisture-card" id="card-moisture">
+      <div class="card-title">Soil Moisture</div>
+      <div class="ring">
+        <svg viewBox="0 0 200 200">
+          <circle cx="100" cy="100" r="80" fill="none" stroke="var(--surf2)" stroke-width="12"/>
+          <circle id="ring-arc" cx="100" cy="100" r="80" fill="none" stroke="var(--green)" stroke-width="12" stroke-linecap="round" stroke-dasharray="502" stroke-dashoffset="502" transform="rotate(-90 100 100)" style="transition:stroke-dashoffset 0.8s ease"/>
         </svg>
         <div class="ring-center">
-          <div class="ring-val" id="moist-val">--</div>
+          <div class="ring-value" id="moist-val">--</div>
           <div class="ring-unit">%</div>
-          <div class="ring-label">Soil Moisture</div>
         </div>
       </div>
-      <div class="moisture-bar-wrap">
-        <div class="moisture-bar">
-          <div class="moisture-fill" id="moist-fill"></div>
-          <div class="moisture-thumb" id="moist-thumb"></div>
-        </div>
-        <div class="moisture-scale">
-          <span>0</span><span>25</span><span>50</span><span>75</span><span>100%</span>
-        </div>
-      </div>
+      <div class="bar"><div class="bar-fill" id="moist-fill" style="width:0%"></div></div>
+      <div class="bar-labels"><span>0</span><span>50</span><span>100%</span></div>
     </div>
 
-    <!-- Valve Status -->
-    <div class="card card-valve" id="card-valve">
-      <div class="card-tag">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-        Valve Control
+    <!-- Valve -->
+    <div class="card valve-card" id="card-valve">
+      <div class="card-title">Valve Control</div>
+      <div class="valve-icon" id="valve-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
       </div>
-      <div class="valve-display">
-        <div class="valve-icon-wrap" id="valve-icon-wrap">
-          <div class="valve-circle" id="valve-circle">
-            <span id="valve-emoji">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            </span>
-          </div>
-          <div class="valve-ripple" id="valve-ripple"></div>
-        </div>
-        <div class="valve-status" id="valve-status">CLOSE</div>
-        <div class="valve-sub" id="valve-sub">Waiting for data...</div>
-      </div>
-
-      <!-- Countdown Timer (shown during watering) -->
+      <div class="valve-status" id="valve-status">Idle</div>
+      <div class="valve-sub" id="valve-sub">Waiting for data</div>
       <div class="countdown-wrap" id="countdown-wrap" hidden>
-        <div class="countdown-ring">
-          <svg class="countdown-svg" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="6"/>
-            <circle id="countdown-arc" cx="50" cy="50" r="42" fill="none" stroke="var(--green)" stroke-width="6" stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="0" transform="rotate(-90 50 50)" style="transition: stroke-dashoffset 1s linear"/>
-          </svg>
-          <div class="countdown-center">
-            <div class="countdown-val" id="countdown-val">--</div>
-            <div class="countdown-label">sec left</div>
-          </div>
-        </div>
-        <div class="countdown-text" id="countdown-text">Watering in progress...</div>
-      </div>
-
-      <div class="raw-display">
-        <div class="raw-label">Analog Raw Value</div>
-        <div class="raw-val" id="raw-val">--</div>
-        <div class="raw-range">Range: 0 – 4095 (12-bit ADC)</div>
-      </div>
-    </div>
-
-    <!-- Stats -->
-    <div class="stats-col">
-      <div class="card mini-card" id="mini-device">
-        <div class="mini-icon" aria-hidden="true">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        </div>
-        <div class="mini-body">
-          <div class="mini-label">Device</div>
-          <div class="mini-val" id="mini-device-val">—</div>
-        </div>
-      </div>
-      <div class="card mini-card" id="mini-count">
-        <div class="mini-icon" aria-hidden="true">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-        </div>
-        <div class="mini-body">
-          <div class="mini-label">Total Readings</div>
-          <div class="mini-val" id="mini-count-val">0</div>
-        </div>
-      </div>
-      <div class="card mini-card" id="mini-avg">
-        <div class="mini-icon" aria-hidden="true">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        </div>
-        <div class="mini-body">
-          <div class="mini-label">Avg Moisture (10)</div>
-          <div class="mini-val" id="mini-avg-val">—</div>
-        </div>
-      </div>
-      <div class="card mini-card" id="mini-last">
-        <div class="mini-icon" aria-hidden="true">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        </div>
-        <div class="mini-body">
-          <div class="mini-label">Last Update</div>
-          <div class="mini-val" id="mini-last-val">—</div>
+        <div style="margin-top:16px;text-align:center">
+          <div style="font-size:2rem;font-weight:700;font-family:monospace;color:var(--green)" id="countdown-val">--</div>
+          <div style="font-size:0.75rem;color:var(--muted)">remaining</div>
         </div>
       </div>
     </div>
 
-  </section>
+  </div>
 
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="card stat">
+      <div class="stat-label">Device</div>
+      <div class="stat-value" id="mini-device-val">—</div>
+    </div>
+    <div class="card stat">
+      <div class="stat-label">Avg Moisture</div>
+      <div class="stat-value" id="mini-avg-val">—</div>
+    </div>
+    <div class="card stat">
+      <div class="stat-label">Last Update</div>
+      <div class="stat-value" id="mini-last-val">—</div>
+    </div>
+  </div>
 
-
-  <!-- Section: Configuration -->
-  <div class="section-header"><h3>Configuration</h3></div>
-
-  <!-- Config Card -->
-  <section class="card config-card" id="card-config">
-    <div class="config-header">
-      <div class="config-title">Watering Config</div>
-      <div class="config-save-status" id="config-save-status">
-        <span class="save-dot"></span>
-        <span id="config-save-text">Synced</span>
+  <!-- Weather -->
+  <div class="card" id="card-weather" hidden>
+    <div class="card-title">Air Conditions</div>
+    <div class="weather-grid">
+      <div class="weather-item">
+        <div class="weather-label">Humidity</div>
+        <div class="weather-val"><span id="weather-humidity">--</span><span class="weather-unit">%</span></div>
+      </div>
+      <div class="weather-item">
+        <div class="weather-label">Temperature</div>
+        <div class="weather-val"><span id="weather-temp">--</span><span class="weather-unit">°C</span></div>
+      </div>
+      <div class="weather-item">
+        <div class="weather-label">Heat Index</div>
+        <div class="weather-val"><span id="weather-heat">--</span><span class="weather-unit">°C</span></div>
       </div>
     </div>
+  </div>
 
-    <!-- Threshold Setting -->
-    <div class="config-setting">
-      <div class="config-setting-header">
-        <span class="config-setting-label">Open Threshold</span>
-        <span class="config-setting-value"><span id="cfg-threshold-val">40</span>%</span>
+  <!-- Config -->
+  <div class="card config-card" id="card-config">
+    <div class="card-title">Configuration</div>
+
+    <div class="config-row">
+      <div class="config-header">
+        <span class="config-label">Open Threshold</span>
+        <span class="config-value"><span id="cfg-threshold-val">40</span>%</span>
       </div>
-      <input type="range" class="cfg-slider slider-open" id="cfg-threshold" min="5" max="95" value="40" aria-label="Open threshold percentage">
+      <input type="range" id="cfg-threshold" min="5" max="95" value="40">
       <div class="config-presets" id="threshold-presets">
-        <button class="preset-btn" data-val="25">Dry 25%</button>
-        <button class="preset-btn active" data-val="40">Normal 40%</button>
-        <button class="preset-btn" data-val="60">Wet 60%</button>
+        <button class="preset" data-val="25">Dry 25%</button>
+        <button class="preset active" data-val="40">Normal 40%</button>
+        <button class="preset" data-val="60">Wet 60%</button>
       </div>
-      <div class="config-hint">When soil moisture drops below this, the valve opens</div>
+      <div class="config-hint">Valve opens when moisture drops below this</div>
     </div>
 
-    <!-- Duration Setting -->
-    <div class="config-setting">
-      <div class="config-setting-header">
-        <span class="config-setting-label">Watering Duration</span>
-        <span class="config-setting-value"><span id="cfg-duration-val">3</span> min</span>
+    <div class="config-row">
+      <div class="config-header">
+        <span class="config-label">Watering Duration</span>
+        <span class="config-value"><span id="cfg-duration-val">3</span> min</span>
       </div>
-      <input type="range" class="cfg-slider slider-time" id="cfg-duration" min="1" max="30" value="3" aria-label="Watering duration in minutes">
+      <input type="range" id="cfg-duration" min="1" max="30" value="3">
       <div class="config-presets" id="duration-presets">
-        <button class="preset-btn" data-val="1">1 min</button>
-        <button class="preset-btn active" data-val="3">3 min</button>
-        <button class="preset-btn" data-val="5">5 min</button>
-        <button class="preset-btn" data-val="10">10 min</button>
+        <button class="preset" data-val="1">1 min</button>
+        <button class="preset active" data-val="3">3 min</button>
+        <button class="preset" data-val="5">5 min</button>
+        <button class="preset" data-val="10">10 min</button>
       </div>
       <div class="config-hint">How long the valve stays open</div>
     </div>
 
-    <!-- Reset WiFi -->
-    <div class="config-reset">
-      <button class="reset-wifi-btn" id="reset-wifi-btn" aria-label="Reset WiFi settings">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
-        Change WiFi
-      </button>
+    <div class="config-actions">
+      <button class="btn btn-primary" id="save-config-btn">Save Changes</button>
+      <button class="btn btn-secondary" id="reset-wifi-btn">Change WiFi</button>
     </div>
-  </section>
-
-  <!-- Weather Card (DHT sensor — optional, shown only when data arrives) -->
-  <section class="card weather-card" id="card-weather" hidden>
-    <div class="card-tag">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
-      Air Conditions <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(DHT)</span>
-    </div>
-    <div class="weather-grid">
-      <div class="weather-item">
-        <div class="weather-icon" style="color:var(--blue)" aria-hidden="true">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></svg>
-        </div>
-        <div class="weather-body">
-          <div class="weather-label">Humidity</div>
-          <div class="weather-val"><span id="weather-humidity">--</span><span class="weather-unit">%</span></div>
-        </div>
-      </div>
-      <div class="weather-item">
-        <div class="weather-icon" style="color:var(--orange)" aria-hidden="true">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></svg>
-        </div>
-        <div class="weather-body">
-          <div class="weather-label">Temperature</div>
-          <div class="weather-val"><span id="weather-temp">--</span><span class="weather-unit">°C</span></div>
-        </div>
-      </div>
-      <div class="weather-item">
-        <div class="weather-icon" style="color:var(--red)" aria-hidden="true">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
-        </div>
-        <div class="weather-body">
-          <div class="weather-label">Heat Index</div>
-          <div class="weather-val"><span id="weather-heat">--</span><span class="weather-unit">°C</span></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Section: History -->
-  <div class="section-header"><h3>History & Analytics</h3></div>
+  </div>
 
   <!-- Chart -->
-  <section class="card chart-card">
-    <div class="chart-header">
-      <div class="card-tag" style="margin-bottom:0">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-        History
-      </div>
-      <div class="chart-toggles">
-        <button class="tog active" id="tog-moist" data-ds="0">Moisture %</button>
-        <button class="tog" id="tog-raw" data-ds="1">Raw ADC</button>
-      </div>
-      <div class="range-btns">
-        <button class="rbtn active" data-n="20">20</button>
-        <button class="rbtn" data-n="50">50</button>
-        <button class="rbtn" data-n="100">100</button>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title" style="margin-bottom:0">History</div>
+      <div class="chart-controls">
+        <button class="chart-btn active" data-n="20">20</button>
+        <button class="chart-btn" data-n="50">50</button>
+        <button class="chart-btn" data-n="100">100</button>
       </div>
     </div>
     <div class="chart-wrap"><canvas id="mainChart"></canvas></div>
-  </section>
+  </div>
 
-  <!-- Scale + Table -->
-  <section class="row row-bottom">
-    <div class="card scale-card">
-      <div class="card-tag">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
-        Soil Moisture Scale
-      </div>
-      <div class="scale-list">
-        <div class="scale-item" style="--c:#ff4757"><div class="scale-bar"></div><div class="scale-info"><strong>Very Dry</strong><span>0 – 20%</span></div></div>
-        <div class="scale-item" style="--c:#ff6b35"><div class="scale-bar"></div><div class="scale-info"><strong>Dry</strong><span>20 – 40%</span></div></div>
-        <div class="scale-item" style="--c:#2ed573"><div class="scale-bar"></div><div class="scale-info"><strong>Good</strong><span>40 – 60%</span></div></div>
-        <div class="scale-item" style="--c:#00d2ff"><div class="scale-bar"></div><div class="scale-info"><strong>Moist</strong><span>60 – 80%</span></div></div>
-        <div class="scale-item" style="--c:#7b2ff7"><div class="scale-bar"></div><div class="scale-info"><strong>Saturated</strong><span>80 – 100%</span></div></div>
-      </div>
+  <!-- Scale -->
+  <div class="card">
+    <div class="card-title">Soil Moisture Scale</div>
+    <div class="scale-list">
+      <div class="scale-item"><div class="scale-bar" style="background:#ef4444"></div><div><strong>Very Dry</strong><span>0-20%</span></div></div>
+      <div class="scale-item"><div class="scale-bar" style="background:#f59e0b"></div><div><strong>Dry</strong><span>20-40%</span></div></div>
+      <div class="scale-item"><div class="scale-bar" style="background:#22c55e"></div><div><strong>Good</strong><span>40-60%</span></div></div>
+      <div class="scale-item"><div class="scale-bar" style="background:#38bdf8"></div><div><strong>Moist</strong><span>60-80%</span></div></div>
+      <div class="scale-item"><div class="scale-bar" style="background:#a855f7"></div><div><strong>Saturated</strong><span>80-100%</span></div></div>
     </div>
+  </div>
 
-    <div class="card table-card">
-      <div class="card-tag">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
-        Recent Readings
-      </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead><tr><th>#</th><th>Device</th><th>Moisture</th><th>Raw</th><th>Valve</th><th>Soil Level</th><th>Time</th></tr></thead>
-          <tbody id="tbl-body"><tr class="empty"><td colspan="7"><div class="empty-state"><div class="empty-state-icon" aria-hidden="true"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div class="empty-state-title">Waiting for sensor data</div><div class="empty-state-desc">Connect your ESP32 to start receiving moisture readings. Check the Setup Guide for help.</div></div></td></tr></tbody>
-        </table>
-      </div>
+  <!-- Table -->
+  <div class="card">
+    <div class="card-title">Recent Readings</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Device</th><th>Moisture</th><th>Valve</th><th>Time</th></tr></thead>
+        <tbody id="tbl-body">
+          <tr><td colspan="5"><div class="empty"><div class="empty-icon">📡</div><div class="empty-title">Waiting for data</div><div class="empty-desc">Connect your ESP32 to start</div></div></td></tr>
+        </tbody>
+      </table>
     </div>
-  </section>
+  </div>
+
 </main>
 
-<div class="guide-btn" id="guide-btn" title="Setup Guide" role="button" tabindex="0" aria-label="Open setup guide">
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
-</div>
-<div class="guide-modal" id="guide-modal" role="dialog" aria-labelledby="guide-title" aria-modal="true">
-  <div class="guide-box">
-    <button class="guide-close" id="guide-close" aria-label="Close guide">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+<button class="guide-btn" id="guide-btn" aria-label="Setup guide">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+</button>
+
+<div class="guide-modal" id="guide-modal">
+  <div class="guide-box" style="position:relative">
+    <button class="guide-close" id="guide-close" aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
     </button>
-    <h2 id="guide-title">Setup Guide</h2>
+    <h2>Setup Guide</h2>
     <ol>
-      <li><b>Install Libraries</b><br/>Open Arduino IDE → Tools → Manage Libraries → Install <code>ESP32Servo</code> and <code>DHT sensor library</code> (if using DHT sensor)</li>
-      <li><b>Wire Your Sensors</b><br/>Moisture Sensor → GPIO <b>34</b>, Servo → GPIO <b>18</b>, DHT22 → GPIO <b>4</b></li>
-      <li><b>Flash & Open Portal</b><br/>Upload any .ino sketch to ESP32. On first boot, connect to WiFi <code>Agriflow-Setup</code> (password: <code>setup123</code>)</li>
-      <li><b>Configure WiFi & Server</b><br/>A setup page pops up automatically. Select your home WiFi, enter the server IP shown by the dashboard, then click Save</li>
-      <li><b>You're Done!</b><br/>ESP32 reboots and connects automatically. No code editing needed!</li>
+      <li><b>Install Libraries</b><br/>Arduino IDE → Libraries → Install <code>ESP32Servo</code></li>
+      <li><b>Wire Sensors</b><br/>Moisture → GPIO 34, Servo → GPIO 18</li>
+      <li><b>Flash ESP32</b><br/>Upload sketch, connect to WiFi <code>Agriflow-Setup</code></li>
+      <li><b>Configure</b><br/>Select your WiFi, enter server IP, save</li>
     </ol>
-    <div class="guide-endpoint">
-      <strong>To reconfigure:</strong> Hold the BOOT button for ~3 seconds while powered on. The portal reopens so you can enter new WiFi/server details.
-      <br/><br/>
-      <strong>Keyboard shortcuts:</strong>
-      <span class="kbd">Ctrl</span>+<span class="kbd">G</span> Open guide
-      <span class="kbd">1</span><span class="kbd">2</span><span class="kbd">3</span> Chart range
-      <span class="kbd">Esc</span> Close modal
-    </div>
   </div>
 </div>
 
-<div class="toast" id="toast" role="alert" aria-live="assertive">
-  <span id="toast-icon" aria-hidden="true">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-  </span>
-  <div><div class="toast-title" id="toast-title">Alert</div><div class="toast-msg" id="toast-msg"></div></div>
+<div class="toast" id="toast">
+  <div>
+    <div class="toast-title" id="toast-title"></div>
+    <div class="toast-msg" id="toast-msg"></div>
+  </div>
 </div>
 
 <script src="script.js"></script>

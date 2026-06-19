@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-19T21:09:00Z",
+  "title": "Design System: Agriflow",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Living Mint",
+        "canonical": "#38eb9c",
+        "tonalRamp": ["#0a2e1f", "#0f4530", "#155c41", "#1a7a52", "#22a06e", "#38eb9c", "#6cf5b8", "#a8fad5"]
+      },
+      "secondary": {
+        "role": "secondary",
+        "displayName": "Electric Cyan",
+        "canonical": "#38d9f5",
+        "tonalRamp": ["#0a2e3a", "#0f4555", "#155c70", "#1a6a7a", "#22a0b8", "#38d9f5", "#6ce8ff", "#a8f2ff"]
+      },
+      "warning": {
+        "role": "tertiary",
+        "displayName": "Amber",
+        "canonical": "#f5a623",
+        "tonalRamp": ["#3d2a09", "#5c3f0d", "#7a5411", "#8a5f14", "#c08520", "#f5a623", "#f8c060", "#fce0a0"]
+      },
+      "error": {
+        "role": "tertiary",
+        "displayName": "Coral",
+        "canonical": "#ff5c6c",
+        "tonalRamp": ["#3d0f12", "#5c1619", "#7a1d21", "#8a2026", "#c04050", "#ff5c6c", "#ff8c98", "#ffbcc4"]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Void",
+        "canonical": "#040810",
+        "tonalRamp": ["#020408", "#040810", "#060c18", "#0a1120", "#0e1628", "#121e34", "#1a2a48", "#24365c"]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text Primary",
+        "canonical": "#e8f4f0",
+        "tonalRamp": ["#2a3e3e", "#4a6868", "#6a8888", "#8aa8a0", "#b0c8c0", "#d0e4e0", "#e8f4f0", "#f4faf8"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Key metrics like moisture percentage, large numerical readouts"
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "All human-readable text, descriptions, labels"
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Category tags, section eyebrows, uppercase indicators"
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Data values, timestamps, technical readouts"
+      }
+    },
+    "shadows": [
+      { "name": "ambient", "value": "0 8px 40px rgba(0,0,0,0.2)", "purpose": "Card hover states, elevated elements" },
+      { "name": "glow-green", "value": "0 0 20px rgba(56,235,156,0.25)", "purpose": "Active/healthy status indicators" },
+      { "name": "glow-red", "value": "0 0 12px rgba(255,92,108,0.2)", "purpose": "Error/offline states" },
+      { "name": "glow-cyan", "value": "0 0 12px rgba(56,217,245,0.2)", "purpose": "Focus rings, secondary accents" }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "cubic-bezier(0.25,0.46,0.45,0.94)", "purpose": "Default easing for state transitions" },
+      { "name": "ease-fast", "value": "ease", "purpose": "Quick feedback transitions" },
+      { "name": "duration-normal", "value": "0.4s", "purpose": "Standard transition duration" },
+      { "name": "duration-slow", "value": "1.2s", "purpose": "Data updates, ring animations" }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "360px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Primary container for dashboard sections",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-tag\">Section Title</div><div class=\"ds-card-body\">Content here</div></div>",
+      "css": ".ds-card { background: linear-gradient(145deg, rgba(10,17,32,0.9), rgba(14,22,40,0.7)); border: 1px solid rgba(56,235,156,0.08); border-radius: 24px; padding: 24px; transition: 0.4s cubic-bezier(0.25,0.46,0.45,0.94); } .ds-card:hover { border-color: rgba(56,235,156,0.15); box-shadow: 0 8px 40px rgba(0,0,0,0.2); } .ds-card-tag { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: #4a6868; margin-bottom: 18px; }"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main action button with green background",
+      "html": "<button class=\"ds-btn-primary\">Save Changes</button>",
+      "css": ".ds-btn-primary { background: #38eb9c; color: #000; padding: 9px 18px; border-radius: 100px; font-weight: 600; font-size: 0.72rem; border: none; cursor: pointer; transition: 0.2s ease; min-height: 40px; } .ds-btn-primary:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(56,235,156,0.25); } .ds-btn-primary:focus-visible { outline: 3px solid #38d9f5; outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary action with transparent background",
+      "html": "<button class=\"ds-btn-ghost\">Cancel</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: #4a6868; padding: 9px 18px; border-radius: 100px; font-weight: 600; font-size: 0.72rem; border: 1px solid rgba(56,235,156,0.08); cursor: pointer; transition: 0.2s ease; min-height: 40px; } .ds-btn-ghost:hover { background: rgba(56,235,156,0.06); border-color: rgba(56,235,156,0.15); color: #e8f4f0; } .ds-btn-ghost:focus-visible { outline: 3px solid #38d9f5; outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Status indicator with color-coded background",
+      "html": "<span class=\"ds-chip ds-chip-active\">Live</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; border-radius: 100px; font-size: 0.72rem; font-weight: 600; border: 1px solid rgba(56,235,156,0.08); background: rgba(14,22,40,0.6); color: #4a6868; } .ds-chip-active { color: #38eb9c; border-color: rgba(56,235,156,0.25); } .ds-chip-warning { color: #f5a623; border-color: rgba(245,166,35,0.25); } .ds-chip-error { color: #ff5c6c; border-color: rgba(255,92,108,0.25); }"
+    },
+    {
+      "name": "Range Slider",
+      "kind": "input",
+      "refersTo": "slider",
+      "description": "Configurable threshold/duration input",
+      "html": "<input type=\"range\" class=\"ds-slider\" min=\"0\" max=\"100\" value=\"40\">",
+      "css": ".ds-slider { width: 100%; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 100px; background: rgba(255,255,255,0.06); outline: none; cursor: pointer; } .ds-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #38eb9c; border: 3px solid #38eb9c; cursor: grab; box-shadow: 0 0 12px rgba(56,235,156,0.25); } .ds-slider:focus-visible { outline: 3px solid #38d9f5; outline-offset: 4px; }"
+    },
+    {
+      "name": "Status Dot",
+      "kind": "custom",
+      "refersTo": "dot",
+      "description": "Connection status indicator",
+      "html": "<span class=\"ds-dot ds-dot-online\"></span>",
+      "css": ".ds-dot { width: 8px; height: 8px; border-radius: 50%; background: #4a6868; } .ds-dot-online { background: #38eb9c; box-shadow: 0 0 12px rgba(56,235,156,0.25); animation: dotPulse 2s ease-in-out infinite; } .ds-dot-offline { background: #ff5c6c; box-shadow: 0 0 12px rgba(255,92,108,0.2); } @keyframes dotPulse { 0%, 100% { box-shadow: 0 0 8px rgba(56,235,156,0.25); } 50% { box-shadow: 0 0 20px rgba(56,235,156,0.25); } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Digital Greenhouse",
+    "overview": "Agriflow brings the clarity of a well-tended garden to digital monitoring. The design language is clean, technical, and nature-connected, avoiding both industrial complexity and playful whimsy. Every element serves a purpose: showing soil health, valve status, and moisture trends without overwhelming non-technical users.",
+    "keyCharacteristics": [
+      "Dark, deep background with luminous accents that feel alive",
+      "Monospace data values for precision, sans-serif for readability",
+      "Organic curves (18-24px radius) that feel approachable, not clinical",
+      "Status-driven color: green for healthy, red for alerts, orange for warnings",
+      "Mobile-first layout optimized for outdoor use"
+    ],
+    "rules": [
+      { "name": "The Signal Rule", "body": "Color carries meaning: green = healthy/active, red = alert/offline, orange = warning/approaching. Never use these colors decoratively; they must always map to a system state.", "section": "colors" },
+      { "name": "The Data Rule", "body": "All sensor values, timestamps, and technical readouts use monospace. All human-readable text uses DM Sans. Never mix.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Surfaces are flat at rest. Shadows appear only as a response to state (hover, elevation, focus). The void background provides depth without needing constant shadow presence.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use green for healthy/active states and red for alerts consistently",
+      "Do keep data values in monospace for technical precision",
+      "Do use 24px border-radius on cards for approachable curves",
+      "Do test readability in outdoor/sunlight conditions",
+      "Do provide 44px minimum touch targets for mobile use"
+    ],
+    "donts": [
+      "Don't use color decoratively; every color must map to a system state",
+      "Don't add complex enterprise SCADA/PLC dashboard patterns",
+      "Don't use glassmorphism everywhere; reserve for the header dock only",
+      "Don't show all data at once; use progressive disclosure",
+      "Don't use gradient text or decorative side-stripe borders"
+    ]
+  }
+}

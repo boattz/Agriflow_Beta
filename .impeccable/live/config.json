@@ -1,0 +1,6 @@
+{
+  "files": ["index.html"],
+  "insertBefore": "<script src=\"script.js\"></script>",
+  "commentSyntax": "<!-- {livereload} -->",
+  "cspChecked": false
+}
