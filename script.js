@@ -129,6 +129,7 @@ document.addEventListener('visibilitychange', function() {
   if (document.visibilityState === 'hidden') {
     if (evtSrc) evtSrc.close();
   } else {
+    startPolling();
     if (!evtSrc || evtSrc.readyState === EventSource.CLOSED) connectSSE();
   }
 });
@@ -460,7 +461,7 @@ function startPolling() {
             console.log('[POLL] New sensor data!');
             processReading(data.latest, true);
             var diffSec = Math.floor((Date.now() - latestTime) / 1000);
-            if (diffSec < 30) {
+            if (diffSec < 60) {
               lastReadingTime = Date.now();
               updateLastSeen();
             }
@@ -490,7 +491,6 @@ function connectSSE() {
   } catch(err) {
     console.error('[SSE] Failed:', err);
     setStatus('offline');
-    startPolling();
     return;
   }
   
@@ -498,8 +498,7 @@ function connectSSE() {
     setStatus('online'); 
     clearTimeout(rTimer); 
     updateOfflineState(false); 
-    stopPolling();
-    console.log('[SSE] Connected — polling stopped');
+    console.log('[SSE] Connected');
   };
   
   evtSrc.onmessage = function(e) {
@@ -532,7 +531,6 @@ function connectSSE() {
     updateOfflineState(true);
     if (evtSrc) evtSrc.close();
     evtSrc = null;
-    startPolling();
     var retryDelay = Math.min(30000, 2000 * Math.pow(2, reconnectAttempts));
     reconnectAttempts++;
     rTimer = setTimeout(connectSSE, retryDelay);
