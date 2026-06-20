@@ -16,6 +16,7 @@ let isOffline = false;
 let lastReadingTime = null;
 let clockInterval = null;
 let firstReading = true;
+let reconnectAttempts = 0;
 
 // Clock
 function updateClock() {
@@ -304,15 +305,69 @@ function processReading(reading, fromHistory) {
   updateChart();
 }
 
+// Polling for config sync (backup for SSE)
+let pollTimer = null;
+const POLL_INTERVAL = 5000; // 5 seconds
+
+function startPolling() {
+  stopPolling();
+  console.log('[POLL] Starting polling every', POLL_INTERVAL/1000, 'seconds');
+  pollTimer = setInterval(function() {
+    fetch('/api/config')
+      .then(function(r) { return r.json(); })
+      .then(function(cfg) {
+        var c = clampConfig(cfg);
+        if (c.openThreshold !== currentConfig.openThreshold || 
+            c.wateringMinutes !== currentConfig.wateringMinutes) {
+          console.log('[POLL] Config change detected!', c);
+          handleConfigUpdate(c);
+          showToast('Synced', 'Settings updated');
+        }
+        if (isOffline) {
+          setStatus('online');
+          updateOfflineState(false);
+        }
+      })
+      .catch(function(err) {
+        console.error('[POLL] Failed:', err);
+      });
+  }, POLL_INTERVAL);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
 // SSE
 function connectSSE() {
   setStatus('connecting');
-  if (evtSrc) evtSrc.close();
-  evtSrc = new EventSource('/api/events');
-  evtSrc.onopen = function() { setStatus('online'); clearTimeout(rTimer); updateOfflineState(false); };
+  if (evtSrc) { evtSrc.close(); evtSrc = null; }
+  
+  var sseUrl = window.location.origin + '/api/events';
+  console.log('[SSE] Connecting to:', sseUrl);
+  
+  try {
+    evtSrc = new EventSource(sseUrl);
+  } catch(err) {
+    console.error('[SSE] Failed:', err);
+    setStatus('offline');
+    startPolling();
+    return;
+  }
+  
+  evtSrc.onopen = function() { 
+    setStatus('online'); 
+    clearTimeout(rTimer); 
+    updateOfflineState(false); 
+    console.log('[SSE] Connected');
+  };
+  
   evtSrc.onmessage = function(e) {
     try {
+      if (e.data.startsWith(':')) return; // skip pings
       var msg = JSON.parse(e.data);
+      console.log('[SSE] Received:', msg.type);
+      
       if (msg.type === 'init') {
         if (msg.data.history && msg.data.history.length) { history = msg.data.history; totalCount = history.length; processReading(history[0], true); }
         if (msg.data.config) handleConfigUpdate(msg.data.config);
@@ -320,11 +375,26 @@ function connectSSE() {
         processReading(msg.data, false);
         if (msg.data.config) handleConfigUpdate(msg.data.config);
       } else if (msg.type === 'config') {
+        console.log('[SSE] Config update!');
         handleConfigUpdate(msg.data);
+        showToast('Synced', 'Settings updated');
       }
     } catch(err) {}
   };
-  evtSrc.onerror = function() { setStatus('offline'); updateOfflineState(true); evtSrc.close(); rTimer = setTimeout(connectSSE, 5000); };
+  
+  evtSrc.onerror = function() {
+    console.log('[SSE] Error, readyState:', evtSrc ? evtSrc.readyState : 'null');
+    if (document.visibilityState === 'hidden') {
+      if (evtSrc) evtSrc.close();
+      return;
+    }
+    setStatus('offline');
+    updateOfflineState(true);
+    if (evtSrc) evtSrc.close();
+    var retryDelay = Math.min(30000, 2000 * Math.pow(2, reconnectAttempts));
+    reconnectAttempts++;
+    rTimer = setTimeout(connectSSE, retryDelay);
+  };
 }
 
 // Config
@@ -407,5 +477,6 @@ document.addEventListener('keydown', function(e) { if (e.key === 'Escape') docum
 
 // Init
 initChart();
-connectSSE();
 loadConfig();
+startPolling(); // Polling first (primary sync)
+connectSSE();  // SSE as bonus
