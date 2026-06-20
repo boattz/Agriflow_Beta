@@ -355,7 +355,7 @@ td{
 /* ── Chart ── */
 .card-header{
   display:flex;align-items:center;justify-content:space-between;
-  margin-bottom:16px;
+  margin-bottom:16px;gap:8px;flex-wrap:wrap;
 }
 
 .chart-controls{display:flex;gap:4px}
@@ -371,7 +371,9 @@ td{
 .chart-btn:hover{border-color:var(--border2);color:var(--text)}
 .chart-btn.active{background:var(--green-dim);border-color:var(--green);color:var(--green)}
 
-.chart-wrap{height:200px}
+.chart-wrap{position:relative;height:180px}
+@media(min-width:640px){.chart-wrap{height:220px}}
+@media(min-width:1024px){.chart-wrap{height:280px}}
 
 /* ── Scale ── */
 .scale-list{display:flex;flex-direction:column;gap:8px}

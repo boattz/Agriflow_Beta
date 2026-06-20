@@ -4,6 +4,7 @@ let history = [];
 let chartRange = 20;
 let totalCount = 0;
 let chart = null;
+let valveStates = [];
 let evtSrc = null;
 let rTimer = null;
 let countdownInterval = null;
@@ -140,13 +141,125 @@ function updateTable() {
   }).join('');
 }
 
+// ── Gradient fill plugin ──
+var gradientPlugin = {
+  id: 'gradientFill',
+  beforeDraw: function(chart) {
+    var ctx = chart.ctx;
+    var chartArea = chart.chartArea;
+    if (!chartArea) return;
+    var gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+    gradient.addColorStop(0, 'rgba(34,197,94,0.25)');
+    gradient.addColorStop(0.5, 'rgba(34,197,94,0.08)');
+    gradient.addColorStop(1, 'rgba(34,197,94,0.01)');
+    chart.data.datasets[0].backgroundColor = gradient;
+  }
+};
+
+// ── Threshold line plugin ──
+var thresholdPlugin = {
+  id: 'thresholdLine',
+  afterDraw: function(chart) {
+    if (!currentConfig || currentConfig.openThreshold == null) return;
+    var ctx = chart.ctx;
+    var chartArea = chart.chartArea;
+    if (!chartArea) return;
+    var yScale = chart.scales.y;
+    var y = yScale.getPixelForValue(currentConfig.openThreshold);
+    if (y < chartArea.top || y > chartArea.bottom) return;
+    ctx.save();
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = 'rgba(239,68,68,0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(chartArea.left, y);
+    ctx.lineTo(chartArea.right, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(239,68,68,0.6)';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('Threshold ' + currentConfig.openThreshold + '%', chartArea.right - 6, y - 5);
+    ctx.restore();
+  }
+};
+
 // Chart
 function initChart() {
   var ctx = document.getElementById('mainChart').getContext('2d');
   chart = new Chart(ctx, {
     type: 'line',
-    data: { labels: [], datasets: [{ label: 'Moisture %', data: [], borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', borderWidth: 2, pointRadius: 3, tension: 0.4, fill: true }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b', font: { size: 10 } } }, y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#22c55e', font: { size: 10 } } } }, animation: { duration: 300 } }
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Moisture %',
+        data: [],
+        borderColor: '#22c55e',
+        backgroundColor: 'rgba(34,197,94,0.08)',
+        borderWidth: 2.5,
+        pointRadius: 0,
+        pointHoverRadius: 7,
+        pointHoverBackgroundColor: '#22c55e',
+        pointHoverBorderColor: '#fff',
+        pointHoverBorderWidth: 2,
+        tension: 0.4,
+        fill: true
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(15,23,42,0.95)',
+          titleColor: '#f1f5f9',
+          titleFont: { size: 11, weight: '600' },
+          bodyColor: '#22c55e',
+          bodyFont: { size: 14, weight: '700' },
+          borderColor: 'rgba(34,197,94,0.2)',
+          borderWidth: 1,
+          padding: { x: 14, y: 10 },
+          cornerRadius: 10,
+          displayColors: false,
+          callbacks: {
+            title: function(items) {
+              if (!items.length) return '';
+              return items[0].label;
+            },
+            label: function(context) {
+              return 'Moisture: ' + context.parsed.y + '%';
+            },
+            afterLabel: function(context) {
+              var valve = valveStates[context.dataIndex] || 'CLOSED';
+              var icon = valve === 'OPEN' ? '● Open' : '○ Closed';
+              return 'Valve: ' + icon;
+            }
+          }
+        }
+      },
+      interaction: {
+        mode: 'nearest',
+        axis: 'x',
+        intersect: false
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 8 },
+          border: { display: false }
+        },
+        y: {
+          min: 0,
+          max: 100,
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#64748b', font: { size: 10 }, callback: function(v) { return v + '%'; } },
+          border: { display: false }
+        }
+      },
+      animation: { duration: 300 }
+    },
+    plugins: [gradientPlugin, thresholdPlugin]
   });
 }
 
@@ -155,6 +268,7 @@ function updateChart() {
   var slice = history.slice().reverse().slice(-chartRange);
   chart.data.labels = slice.map(function(r) { return new Date(r.timestamp).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'}); });
   chart.data.datasets[0].data = slice.map(function(r) { return parseFloat(r.moisture); });
+  valveStates = slice.map(function(r) { return r.valve === 'OPEN' ? 'OPEN' : 'CLOSED'; });
   chart.update('none');
 }
 
