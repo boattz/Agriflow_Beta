@@ -96,9 +96,15 @@ function updateLastSeen() {
   var newState = diff < 30 ? 'online' : 'offline';
   if (newState !== lastSeenState) {
     dot.className = 'dot ' + newState;
-    txt.textContent = newState === 'online' ? 'Connected' : 'Offline';
+    txt.textContent = newState === 'online' ? 'Connected' : 'Disconnected';
     lastSeenState = newState;
+    if (newState === 'offline') {
+      lastVal.textContent = '—';
+      lastSeenText = '';
+      return;
+    }
   }
+  if (newState === 'offline') return;
   var text;
   if (diff < 5) text = 'Just now';
   else if (diff < 60) text = diff + 's ago';
@@ -390,7 +396,7 @@ function showToast(title, msg) {
 // Process reading
 function processReading(reading, fromHistory) {
   if (firstReading && !fromHistory) { showToast('ESP32 Connected', 'Receiving sensor data'); firstReading = false; showClock(); }
-  setESP32Status(true);
+  if (!fromHistory) setESP32Status(true);
   totalCount++;
   history.push(reading);
   if (history.length > 200) history.shift();
@@ -398,7 +404,11 @@ function processReading(reading, fromHistory) {
   if (reading.level) { updateRing(parseFloat(reading.moisture), reading.level.color); setSoilLevel(reading.level); }
   if (!fromHistory) updateValve(reading.valve, wm);
   document.getElementById('mini-device-val').textContent = reading.device;
-  lastReadingTime = Date.now();
+  if (!fromHistory) {
+    lastReadingTime = Date.now();
+  } else if (reading.timestamp) {
+    lastReadingTime = new Date(reading.timestamp).getTime();
+  }
   updateLastSeen();
   var slice = history.slice(-10);
   if (slice.length) { var avg = (slice.reduce(function(s, r) { return s + parseFloat(r.moisture || 0); }, 0) / slice.length).toFixed(1); document.getElementById('mini-avg-val').textContent = avg + '%'; }
