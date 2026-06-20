@@ -70,9 +70,11 @@ app.use(express.static(__dirname, {
     if (!STATIC_ALLOWED.includes(ext) || BLOCKED_FILES.includes(base)) {
       res.status(403).end();
     }
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
+    if (ext === '.html') {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (ext === '.js' || ext === '.css') {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
   }
 }));
 

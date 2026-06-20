@@ -467,10 +467,48 @@ td{
   display:flex;align-items:center;justify-content:center;
   cursor:pointer;z-index:200;
   box-shadow:0 4px 12px rgba(13,148,136,0.3);
-  text-decoration:none;
 }
 
 .guide-btn svg{width:20px;height:20px;color:#000}
+
+.guide-modal{
+  display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,0.5);
+  align-items:center;justify-content:center;
+  padding:16px;z-index:300;
+}
+
+[data-theme="light"] .guide-modal{background:rgba(26,35,50,0.25)}
+
+.guide-modal.open{display:flex}
+
+.guide-box{
+  background:var(--surf);border:1px solid var(--border);
+  border-radius:var(--r);padding:24px;
+  max-width:500px;width:100%;
+  max-height:90vh;overflow-y:auto;
+  contain:layout style;
+}
+
+.guide-box h2{font-size:1.1rem;margin-bottom:16px}
+
+.guide-box ol{
+  padding-left:20px;
+  display:flex;flex-direction:column;gap:12px;
+}
+
+.guide-box li{font-size:0.85rem;line-height:1.5}
+.guide-box li b{color:var(--green)}
+.guide-box code{
+  background:var(--surf2);padding:2px 6px;
+  border-radius:4px;font-size:0.8rem;
+}
+
+.guide-close{
+  position:absolute;top:12px;right:12px;
+  background:none;border:none;color:var(--muted);
+  cursor:pointer;padding:8px;
+}
 
 /* ── Accessibility ── */
 .sr-only{

@@ -1,13 +1,5 @@
 // Agriflow — Dashboard
 
-// Unregister any old service workers
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(function(regs) {
-    regs.forEach(function(r) { r.unregister(); });
-  });
-  caches.keys().then(function(keys) { keys.forEach(function(k) { caches.delete(k); }); });
-}
-
 let history = [];
 let chartRange = 20;
 let totalCount = 0;
@@ -129,7 +121,6 @@ document.addEventListener('visibilitychange', function() {
   if (document.visibilityState === 'hidden') {
     if (evtSrc) evtSrc.close();
   } else {
-    startPolling();
     if (!evtSrc || evtSrc.readyState === EventSource.CLOSED) connectSSE();
   }
 });
@@ -461,7 +452,7 @@ function startPolling() {
             console.log('[POLL] New sensor data!');
             processReading(data.latest, true);
             var diffSec = Math.floor((Date.now() - latestTime) / 1000);
-            if (diffSec < 60) {
+            if (diffSec < 30) {
               lastReadingTime = Date.now();
               updateLastSeen();
             }
@@ -491,6 +482,7 @@ function connectSSE() {
   } catch(err) {
     console.error('[SSE] Failed:', err);
     setStatus('offline');
+    startPolling();
     return;
   }
   
@@ -498,7 +490,8 @@ function connectSSE() {
     setStatus('online'); 
     clearTimeout(rTimer); 
     updateOfflineState(false); 
-    console.log('[SSE] Connected');
+    stopPolling();
+    console.log('[SSE] Connected — polling stopped');
   };
   
   evtSrc.onmessage = function(e) {
@@ -531,6 +524,7 @@ function connectSSE() {
     updateOfflineState(true);
     if (evtSrc) evtSrc.close();
     evtSrc = null;
+    startPolling();
     var retryDelay = Math.min(30000, 2000 * Math.pow(2, reconnectAttempts));
     reconnectAttempts++;
     rTimer = setTimeout(connectSSE, retryDelay);
@@ -609,7 +603,11 @@ document.getElementById('reset-wifi-btn').addEventListener('click', function() {
   fetch('/api/reset-wifi', { method: 'POST' }).then(function(r) { return r.json(); }).then(function(res) { if (res.ok) showToast('WiFi Reset', 'ESP32 rebooting...'); }).catch(function() { showToast('Error', 'Failed'); });
 });
 
-// Guide — now links to PRESENTATION.html
+// Guide
+document.getElementById('guide-btn').addEventListener('click', function() { document.getElementById('guide-modal').classList.add('open'); });
+document.getElementById('guide-close').addEventListener('click', function() { document.getElementById('guide-modal').classList.remove('open'); });
+document.getElementById('guide-modal').addEventListener('click', function(e) { if (e.target === e.currentTarget) e.target.classList.remove('open'); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') document.getElementById('guide-modal').classList.remove('open'); });
 
 // Init
 cacheDom();
@@ -617,3 +615,19 @@ initChart();
 loadConfig();
 startPolling();
 connectSSE();
+
+// Service Worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').then(function(reg) {
+    reg.onupdatefound = function() {
+      var newWorker = reg.installing;
+      newWorker.onstatechange = function() {
+        if (newWorker.state === 'activated') {
+          caches.keys().then(function(keys) {
+            return Promise.all(keys.filter(function(k) { return k !== 'agriflow-v3'; }).map(function(k) { return caches.delete(k); }));
+          });
+        }
+      };
+    };
+  }).catch(function() {});
+}
