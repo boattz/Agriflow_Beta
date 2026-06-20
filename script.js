@@ -406,10 +406,8 @@ function processReading(reading, fromHistory) {
   document.getElementById('mini-device-val').textContent = reading.device;
   if (!fromHistory) {
     lastReadingTime = Date.now();
-  } else if (reading.timestamp) {
-    lastReadingTime = new Date(reading.timestamp).getTime();
+    updateLastSeen();
   }
-  updateLastSeen();
   var slice = history.slice(-10);
   if (slice.length) { var avg = (slice.reduce(function(s, r) { return s + parseFloat(r.moisture || 0); }, 0) / slice.length).toFixed(1); document.getElementById('mini-avg-val').textContent = avg + '%'; }
   scheduleUpdate();
@@ -449,10 +447,15 @@ function startPolling() {
       .then(function(data) {
         if (data.latest && data.latest.timestamp) {
           var latestTime = new Date(data.latest.timestamp).getTime();
-          var lastTime = lastReadingTime ? new Date(lastReadingTime).getTime() : 0;
+          var lastTime = lastReadingTime || 0;
           if (latestTime > lastTime) {
             console.log('[POLL] New sensor data!');
-            processReading(data.latest, false);
+            processReading(data.latest, true);
+            var diffSec = Math.floor((Date.now() - latestTime) / 1000);
+            if (diffSec < 30) {
+              lastReadingTime = Date.now();
+              updateLastSeen();
+            }
           }
         }
       })
