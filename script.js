@@ -603,11 +603,7 @@ document.getElementById('reset-wifi-btn').addEventListener('click', function() {
   fetch('/api/reset-wifi', { method: 'POST' }).then(function(r) { return r.json(); }).then(function(res) { if (res.ok) showToast('WiFi Reset', 'ESP32 rebooting...'); }).catch(function() { showToast('Error', 'Failed'); });
 });
 
-// Guide
-document.getElementById('guide-btn').addEventListener('click', function() { document.getElementById('guide-modal').classList.add('open'); });
-document.getElementById('guide-close').addEventListener('click', function() { document.getElementById('guide-modal').classList.remove('open'); });
-document.getElementById('guide-modal').addEventListener('click', function(e) { if (e.target === e.currentTarget) e.target.classList.remove('open'); });
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') document.getElementById('guide-modal').classList.remove('open'); });
+// Guide — now links to PRESENTATION.html
 
 // Init
 cacheDom();
