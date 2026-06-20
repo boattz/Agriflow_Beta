@@ -17,6 +17,9 @@ let lastReadingTime = null;
 let clockInterval = null;
 let firstReading = true;
 let reconnectAttempts = 0;
+let pendingTableUpdate = false;
+let pendingChartUpdate = false;
+let lastScheduledUpdate = 0;
 
 // Theme
 (function() {
@@ -108,6 +111,14 @@ function updateLastSeen() {
 }
 setInterval(updateLastSeen, 1000);
 
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden') {
+    if (evtSrc) evtSrc.close();
+  } else {
+    if (!evtSrc || evtSrc.readyState === EventSource.CLOSED) connectSSE();
+  }
+});
+
 // Ring
 var RING_CIRC = 502;
 var ringArc, moistVal, moistFill;
@@ -177,15 +188,36 @@ function updateOfflineState(offline) {
 }
 
 // Table
+var _tableRows = [];
 function updateTable() {
   var body = document.getElementById('tbl-body');
   if (history.length === 0) { body.innerHTML = '<tr><td colspan="5"><div class="empty"><div class="empty-icon">📡</div><div class="empty-title">Waiting for data</div><div class="empty-desc">Connect your ESP32 to start</div></div></td></tr>'; return; }
-  body.innerHTML = history.slice(0, 10).map(function(r, i) {
+  var recent = history.slice(-10).reverse();
+  var html = '';
+  for (var i = 0; i < recent.length; i++) {
+    var r = recent[i];
     var t = new Date(r.timestamp).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'});
     var m = r.moisture !== null ? r.moisture + '%' : '--';
     var v = r.valve === 'OPEN';
-    return '<tr><td class="mono">' + (totalCount - i) + '</td><td>' + r.device + '</td><td style="font-weight:600">' + m + '</td><td><span class="pill ' + (v ? 'pill-green' : 'pill-gray') + '">' + (v ? 'Open' : 'Closed') + '</span></td><td class="mono">' + t + '</td></tr>';
-  }).join('');
+    var idx = totalCount - i;
+    if (_tableRows[i] && _tableRows[i].idx === idx && _tableRows[i].m === m && _tableRows[i].v === v && _tableRows[i].t === t && _tableRows[i].d === r.device) continue;
+    _tableRows[i] = { idx: idx, m: m, v: v, t: t, d: r.device };
+    html += '<tr><td class="mono">' + idx + '</td><td>' + r.device + '</td><td style="font-weight:600">' + m + '</td><td><span class="pill ' + (v ? 'pill-green' : 'pill-gray') + '">' + (v ? 'Open' : 'Closed') + '</span></td><td class="mono">' + t + '</td></tr>';
+  }
+  if (html) body.innerHTML = html;
+}
+
+// Schedule batched DOM updates
+var _pendingGradient = null;
+function scheduleUpdate() {
+  var now = performance.now();
+  if (now - lastScheduledUpdate > 200) {
+    lastScheduledUpdate = now;
+    requestAnimationFrame(function() {
+      updateTable();
+      updateChart();
+    });
+  }
 }
 
 // ── Gradient fill plugin ──
@@ -195,11 +227,18 @@ var gradientPlugin = {
     var ctx = chart.ctx;
     var chartArea = chart.chartArea;
     if (!chartArea) return;
+    var w = chartArea.right - chartArea.left;
+    var h = chartArea.bottom - chartArea.top;
+    if (_pendingGradient && _pendingGradient.w === w && _pendingGradient.h === h) {
+      chart.data.datasets[0].backgroundColor = _pendingGradient.g;
+      return;
+    }
     var gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
     gradient.addColorStop(0, 'rgba(34,197,94,0.25)');
     gradient.addColorStop(0.5, 'rgba(34,197,94,0.08)');
     gradient.addColorStop(1, 'rgba(34,197,94,0.01)');
     chart.data.datasets[0].backgroundColor = gradient;
+    _pendingGradient = { g: gradient, w: w, h: h };
   }
 };
 
@@ -320,14 +359,15 @@ function updateChart() {
   if (!chart) return;
   var len = history.length;
   var start = Math.max(0, len - chartRange);
-  var labels = [];
-  var data = [];
-  valveStates = [];
+  var labels = new Array(len - start);
+  var data = new Array(len - start);
+  valveStates = new Array(len - start);
   for (var i = start; i < len; i++) {
+    var j = i - start;
     var r = history[i];
-    labels.push(new Date(r.timestamp).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'}));
-    data.push(parseFloat(r.moisture));
-    valveStates.push(r.valve === 'OPEN' ? 'OPEN' : 'CLOSED');
+    labels[j] = new Date(r.timestamp).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    data[j] = parseFloat(r.moisture);
+    valveStates[j] = r.valve === 'OPEN' ? 'OPEN' : 'CLOSED';
   }
   chart.data.labels = labels;
   chart.data.datasets[0].data = data;
@@ -352,18 +392,17 @@ function processReading(reading, fromHistory) {
   if (firstReading && !fromHistory) { showToast('ESP32 Connected', 'Receiving sensor data'); firstReading = false; showClock(); }
   setESP32Status(true);
   totalCount++;
-  history.unshift(reading);
-  if (history.length > 200) history.pop();
+  history.push(reading);
+  if (history.length > 200) history.shift();
   var wm = reading.config ? reading.config.wateringMinutes : 3;
   if (reading.level) { updateRing(parseFloat(reading.moisture), reading.level.color); setSoilLevel(reading.level); }
   if (!fromHistory) updateValve(reading.valve, wm);
   document.getElementById('mini-device-val').textContent = reading.device;
   lastReadingTime = Date.now();
   updateLastSeen();
-  var slice = history.slice(0, 10);
+  var slice = history.slice(-10);
   if (slice.length) { var avg = (slice.reduce(function(s, r) { return s + parseFloat(r.moisture || 0); }, 0) / slice.length).toFixed(1); document.getElementById('mini-avg-val').textContent = avg + '%'; }
-  updateTable();
-  updateChart();
+  scheduleUpdate();
 }
 
 // Polling for config sync (backup for SSE)
@@ -471,6 +510,7 @@ function connectSSE() {
     setStatus('offline');
     updateOfflineState(true);
     if (evtSrc) evtSrc.close();
+    evtSrc = null;
     startPolling();
     var retryDelay = Math.min(30000, 2000 * Math.pow(2, reconnectAttempts));
     reconnectAttempts++;
@@ -560,8 +600,7 @@ document.addEventListener('keydown', function(e) { if (e.key === 'Escape') docum
 cacheDom();
 initChart();
 loadConfig();
-startPolling(); // Polling first (primary sync)
-connectSSE();  // SSE as bonus
+connectSSE();
 
 // Service Worker
 if ('serviceWorker' in navigator) {
