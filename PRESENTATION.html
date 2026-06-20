@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
 <title>Agriflow — ทำความเข้าใจระบบ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -228,6 +229,43 @@ td{padding:10px 14px;border-bottom:1px solid var(--border)}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--muted);border-radius:3px}
+
+@media(max-width:700px){
+  section{padding:70px 16px 30px;min-height:auto}
+  .section-inner{padding:0}
+  h2{font-size:1.4rem}
+  h3{font-size:1rem}
+  .desc{font-size:0.88rem}
+  .card{padding:18px}
+  .comp-item{padding:16px}
+  .code-block{padding:14px;font-size:0.7rem;line-height:1.7}
+  .flow{gap:8px;margin:20px 0}
+  .flow-node{padding:12px 14px;min-width:90px}
+  .flow-node .icon{font-size:1.6rem}
+  .flow-node .label{font-size:0.72rem}
+  .flow-node .sub{font-size:0.62rem}
+  .flow-arrow{font-size:1rem}
+  table{font-size:0.75rem}
+  th,td{padding:8px 10px}
+  .compare-box{padding:16px}
+  .compare-box li{font-size:0.78rem}
+  .step{gap:12px;margin-bottom:16px}
+  .step-num{width:30px;height:30px;font-size:0.72rem}
+  .step-content h4{font-size:0.88rem}
+  .step-content p{font-size:0.8rem}
+  .highlight-box{padding:16px}
+  .highlight-box p{font-size:0.82rem}
+  .grid-3{grid-template-columns:1fr}
+}
+
+@media(max-width:400px){
+  nav{padding:10px 12px;gap:8px}
+  nav a{font-size:0.68rem;padding:5px 8px}
+  h2{font-size:1.2rem}
+  .hero h1{font-size:1.8rem}
+  .card{padding:14px}
+  .code-block{font-size:0.65rem;padding:12px}
+}
 </style>
 </head>
 <body>
