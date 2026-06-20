@@ -98,7 +98,7 @@ header{
 /* ── Main ── */
 main{
   max-width:1200px;margin:0 auto;
-  padding:16px;
+  padding:16px 16px 80px;
   display:flex;flex-direction:column;gap:16px;
 }
 
@@ -171,6 +171,9 @@ main{
   font-size:0.7rem;color:var(--muted);
   margin-top:4px;
 }
+@media(max-width:400px){
+  .bar-labels{font-size:0.6rem}
+}
 
 /* ── Valve ── */
 .valve-card{text-align:center}
@@ -216,7 +219,7 @@ main{
 }
 
 @media(max-width:640px){
-  .stats-grid{grid-template-columns:1fr 1fr}
+  .stats-grid{grid-template-columns:1fr}
 }
 
 /* ── Config ── */
@@ -484,11 +487,17 @@ td{
 /* ── Responsive ── */
 @media(max-width:640px){
   header{padding:10px 12px}
+  .hdr{gap:8px;flex-wrap:wrap}
+  .hdr-soil{display:none}
+  .hdr-status{gap:6px}
+  .status-row{padding:3px 6px;gap:4px}
+  .status-label{display:none}
+  .status-text{font-size:0.7rem}
   .logo-text{font-size:0.9rem}
   main{padding:12px}
   .card{padding:16px}
-  .ring{width:150px;height:150px}
-  .ring-value{font-size:2.5rem}
+  .ring{width:140px;height:140px}
+  .ring-value{font-size:2.2rem}
   .config-actions{flex-direction:column}
   .btn{width:100%;justify-content:center}
 }
