@@ -128,15 +128,6 @@ function updateOfflineState(offline) {
   if (offline) { stopCountdown(); hideClock(); firstReading = true; setESP32Status(false); }
 }
 
-// Weather
-function updateWeather(reading) {
-  if (reading.humidity === null || reading.humidity === undefined) return;
-  document.getElementById('card-weather').hidden = false;
-  document.getElementById('weather-humidity').textContent = reading.humidity;
-  document.getElementById('weather-temp').textContent = reading.temperature || '--';
-  document.getElementById('weather-heat').textContent = reading.heatIndex || '--';
-}
-
 // Table
 function updateTable() {
   var body = document.getElementById('tbl-body');
@@ -190,7 +181,6 @@ function processReading(reading, fromHistory) {
   var wm = reading.config ? reading.config.wateringMinutes : 3;
   if (reading.level) { updateRing(parseFloat(reading.moisture), reading.level.color); setSoilLevel(reading.level); }
   if (!fromHistory) updateValve(reading.valve, wm);
-  updateWeather(reading);
   document.getElementById('mini-device-val').textContent = reading.device;
   lastReadingTime = Date.now();
   updateLastSeen();

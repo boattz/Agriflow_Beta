@@ -352,33 +352,6 @@ td{
 .empty-title{font-size:0.9rem;font-weight:600;color:var(--text);margin-bottom:4px}
 .empty-desc{font-size:0.8rem}
 
-/* ── Weather ── */
-.weather-grid{
-  display:grid;
-  grid-template-columns:repeat(3,1fr);
-  gap:12px;
-}
-
-.weather-item{
-  text-align:center;
-  padding:12px;
-  background:var(--surf2);
-  border-radius:8px;
-}
-
-.weather-label{
-  font-size:0.7rem;color:var(--muted);
-  text-transform:uppercase;letter-spacing:0.05em;
-  margin-bottom:4px;
-}
-
-.weather-val{
-  font-size:1.2rem;font-weight:600;
-  font-family:monospace;
-}
-
-.weather-unit{font-size:0.75rem;color:var(--muted)}
-
 /* ── Chart ── */
 .card-header{
   display:flex;align-items:center;justify-content:space-between;
