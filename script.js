@@ -313,6 +313,7 @@ function startPolling() {
   stopPolling();
   console.log('[POLL] Starting polling every', POLL_INTERVAL/1000, 'seconds');
   pollTimer = setInterval(function() {
+    // 1. Check config changes
     fetch('/api/config')
       .then(function(r) { return r.json(); })
       .then(function(cfg) {
@@ -329,7 +330,24 @@ function startPolling() {
         }
       })
       .catch(function(err) {
-        console.error('[POLL] Failed:', err);
+        console.error('[POLL] Config failed:', err);
+      });
+    
+    // 2. Check new sensor data
+    fetch('/api/data')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.latest && data.latest.timestamp) {
+          var latestTime = new Date(data.latest.timestamp).getTime();
+          var lastTime = lastReadingTime ? new Date(lastReadingTime).getTime() : 0;
+          if (latestTime > lastTime) {
+            console.log('[POLL] New sensor data!');
+            processReading(data.latest, false);
+          }
+        }
+      })
+      .catch(function(err) {
+        console.error('[POLL] Data failed:', err);
       });
   }, POLL_INTERVAL);
 }
