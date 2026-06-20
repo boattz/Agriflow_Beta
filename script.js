@@ -614,16 +614,5 @@ connectSSE();
 
 // Service Worker
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').then(function(reg) {
-    reg.onupdatefound = function() {
-      var newWorker = reg.installing;
-      newWorker.onstatechange = function() {
-        if (newWorker.state === 'activated') {
-          caches.keys().then(function(keys) {
-            return Promise.all(keys.filter(function(k) { return k !== 'agriflow-v3'; }).map(function(k) { return caches.delete(k); }));
-          });
-        }
-      };
-    };
-  }).catch(function() {});
+  navigator.serviceWorker.register('/sw.js').catch(function() {});
 }
