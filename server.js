@@ -10,6 +10,11 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
+// ── Health Check (for Render.com) ─────────────
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', db: dbReady ? 'connected' : 'disconnected' });
+});
+
 // Serve only dashboard files
 app.use(express.static(__dirname, {
   index: 'index.html',
