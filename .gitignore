@@ -7,6 +7,12 @@ data.json
 # Environment variables (contains secrets)
 .env
 
+# Dev tools
+.impeccable/
+
+# Third-party libraries (installed via package manager)
+moisture-sensor_code/ESP32_SmartSprinkler/libraries/
+
 # Logs / OS junk
 *.log
 npm-debug-debug*
