@@ -1,5 +1,13 @@
 // Agriflow — Dashboard
 
+// Unregister any old service workers
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(function(regs) {
+    regs.forEach(function(r) { r.unregister(); });
+  });
+  caches.keys().then(function(keys) { keys.forEach(function(k) { caches.delete(k); }); });
+}
+
 let history = [];
 let chartRange = 20;
 let totalCount = 0;
@@ -611,8 +619,3 @@ initChart();
 loadConfig();
 startPolling();
 connectSSE();
-
-// Service Worker
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(function() {});
-}

@@ -1,29 +1,22 @@
-var CACHE = 'agriflow-v4';
+var CACHE = 'agriflow-v5';
 
-self.addEventListener('install', function(e) {
+self.addEventListener('install', function() {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', function(e) {
   e.waitUntil(
     caches.keys().then(function(keys) {
-      return Promise.all(keys.filter(function(k) { return k !== CACHE; }).map(function(k) { return caches.delete(k); }));
+      return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+    }).then(function() {
+      return self.clients.claim();
     })
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', function(e) {
-  var url = new URL(e.request.url);
-  if (url.pathname.startsWith('/api/')) return;
-  if (e.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')) {
-    e.respondWith(
-      fetch(e.request).then(function(response) {
-        return response;
-      }).catch(function() {
-        return caches.match(e.request);
-      })
-    );
-    return;
+  if (e.request.url.includes('/api/')) return;
+  if (e.request.mode === 'navigate') {
+    e.respondWith(fetch(e.request).catch(function() { return caches.match(e.request); }));
   }
 });

@@ -71,9 +71,9 @@ app.use(express.static(__dirname, {
       res.status(403).end();
     }
     if (ext === '.html') {
-      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     } else if (ext === '.js' || ext === '.css') {
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.setHeader('Cache-Control', 'no-cache');
     }
   }
 }));
