@@ -4,6 +4,9 @@ node_modules/
 # Persistence (contains readings + config from your devices)
 data.json
 
+# Environment variables (contains secrets)
+.env
+
 # Logs / OS junk
 *.log
 npm-debug-debug*

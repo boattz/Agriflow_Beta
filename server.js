@@ -3,26 +3,65 @@ const express = require('express');
 const cors    = require('cors');
 const { Pool } = require('pg');
 const os      = require('os');
+const path    = require('path');
 
 const app  = express();
 const PORT = process.env.PORT || 10000;
 
-app.use(cors());
+const ALLOWED_ORIGINS = [
+  process.env.RENDER_EXTERNAL_URL,
+  'http://localhost:' + PORT,
+  'http://127.0.0.1:' + PORT
+].filter(Boolean);
+
+app.use(cors({
+  origin: function(origin, cb) {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    cb(null, false);
+  }
+}));
 app.use(express.json());
+
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+const rateLimitStore = {};
+function rateLimit(max, windowMs) {
+  return function(req, res, next) {
+    const ip = req.ip;
+    const now = Date.now();
+    if (!rateLimitStore[ip] || rateLimitStore[ip].reset < now) {
+      rateLimitStore[ip] = { count: 1, reset: now + windowMs };
+      return next();
+    }
+    rateLimitStore[ip].count++;
+    if (rateLimitStore[ip].count > max) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+    next();
+  };
+}
 
 // ── Health Check (for Render.com) ─────────────
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', db: dbReady ? 'connected' : 'disconnected' });
 });
 
-// Serve only dashboard files
+const STATIC_ALLOWED = ['.html', '.css', '.js', '.json', '.png', '.jpg', '.svg', '.ico'];
+const BLOCKED_FILES = ['.env', 'server.js', 'package.json', 'package-lock.json', 'Procfile', 'render.yaml'];
+
 app.use(express.static(__dirname, {
   index: 'index.html',
   extensions: ['html'],
-  setHeaders: (res, path) => {
-    const allowed = ['.html', '.css', '.js', '.json', '.png', '.jpg', '.svg', '.ico'];
-    const ext = require('path').extname(path);
-    if (!allowed.includes(ext)) {
+  setHeaders: (res, filePath) => {
+    const ext = path.extname(filePath);
+    const base = path.basename(filePath);
+    if (!STATIC_ALLOWED.includes(ext) || BLOCKED_FILES.includes(base)) {
       res.status(403).end();
     }
   }
@@ -30,11 +69,11 @@ app.use(express.static(__dirname, {
 
 // ── PostgreSQL Connection (Supabase Pooler) ───
 const dbUrl = process.env.DATABASE_URL;
-console.log('[DB] URL defined:', dbUrl ? 'YES (length: ' + dbUrl.length + ')' : 'NO');
+console.log('[DB] Configured:', dbUrl ? 'YES' : 'NO');
 
 const pool = new Pool({
   connectionString: dbUrl || 'postgresql://localhost:5432/postgres',
-  ssl: { rejectUnauthorized: false }
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
 let dbReady = false;
@@ -154,7 +193,7 @@ app.get('/api/config', (req, res) => {
 });
 
 // ── POST /api/config ─────────────────────────
-app.post('/api/config', async (req, res) => {
+app.post('/api/config', rateLimit(30, 60000), async (req, res) => {
   const { openThreshold, wateringMinutes } = req.body;
 
   if (openThreshold !== undefined)   config.openThreshold   = Math.max(5, Math.min(95, parseInt(openThreshold)));
@@ -167,7 +206,7 @@ app.post('/api/config', async (req, res) => {
 });
 
 // ── POST /api/reset-wifi ─────────────────────
-app.post('/api/reset-wifi', async (req, res) => {
+app.post('/api/reset-wifi', rateLimit(5, 60000), async (req, res) => {
   console.log('[RESET] WiFi reset requested from dashboard');
   config.resetWifi = true;
   await saveConfig();
@@ -176,7 +215,7 @@ app.post('/api/reset-wifi', async (req, res) => {
 });
 
 // ── POST /api/sensor ─────────────────────────
-app.post('/api/sensor', async (req, res) => {
+app.post('/api/sensor', rateLimit(60, 60000), async (req, res) => {
   const {
     raw, moisture, valve, device, threshold, wateringMinutes: wm,
     humidity, temperature, heatIndex
@@ -186,7 +225,7 @@ app.post('/api/sensor', async (req, res) => {
     return res.status(400).json({ error: 'Missing moisture or humidity' });
   }
 
-  const id    = device || 'ESP32';
+  const id    = (typeof device === 'string' && device.length <= 50) ? device.replace(/[<>"'&]/g, '') : 'ESP32';
   const ts    = new Date().toISOString();
   const level = moisture !== undefined ? soilLevel(parseFloat(moisture)) : null;
 
@@ -278,7 +317,7 @@ app.get('/api/events', (req, res) => {
   res.setHeader('Content-Type',                'text/event-stream');
   res.setHeader('Cache-Control',               'no-cache');
   res.setHeader('Connection',                  'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0] || '*');
   res.flushHeaders();
 
   // Send initial data

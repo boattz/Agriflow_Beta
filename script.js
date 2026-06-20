@@ -18,6 +18,33 @@ let clockInterval = null;
 let firstReading = true;
 let reconnectAttempts = 0;
 
+// Theme
+(function() {
+  var saved = localStorage.getItem('agriflow-theme');
+  var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  var theme = saved || (prefersDark ? 'dark' : 'dark');
+  document.documentElement.setAttribute('data-theme', theme);
+})();
+
+function toggleTheme() {
+  var current = document.documentElement.getAttribute('data-theme') || 'dark';
+  var next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('agriflow-theme', next);
+  if (chart) {
+    var isLight = next === 'light';
+    var textColor = isLight ? '#334155' : '#64748b';
+    var gridColor = isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)';
+    chart.options.scales.x.ticks.color = textColor;
+    chart.options.scales.y.ticks.color = textColor;
+    chart.options.scales.y.grid.color = gridColor;
+    chart.update('none');
+  }
+}
+
+var themeBtn = document.getElementById('theme-btn');
+if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
+
 // Clock
 function updateClock() {
   document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'});
@@ -187,6 +214,12 @@ var thresholdPlugin = {
 
 // Chart
 function initChart() {
+  var isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  var textColor = isLight ? '#334155' : '#64748b';
+  var gridColor = isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)';
+  var tooltipBg = isLight ? 'rgba(255,255,255,0.95)' : 'rgba(15,23,42,0.95)';
+  var tooltipTitle = isLight ? '#0f172a' : '#f1f5f9';
+  var tooltipBorder = isLight ? 'rgba(22,163,74,0.2)' : 'rgba(34,197,94,0.2)';
   var ctx = document.getElementById('mainChart').getContext('2d');
   chart = new Chart(ctx, {
     type: 'line',
@@ -213,12 +246,12 @@ function initChart() {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: 'rgba(15,23,42,0.95)',
-          titleColor: '#f1f5f9',
+          backgroundColor: tooltipBg,
+          titleColor: tooltipTitle,
           titleFont: { size: 11, weight: '600' },
           bodyColor: '#22c55e',
           bodyFont: { size: 14, weight: '700' },
-          borderColor: 'rgba(34,197,94,0.2)',
+          borderColor: tooltipBorder,
           borderWidth: 1,
           padding: { x: 14, y: 10 },
           cornerRadius: 10,
@@ -247,14 +280,14 @@ function initChart() {
       scales: {
         x: {
           grid: { display: false },
-          ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 8 },
+          ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 8 },
           border: { display: false }
         },
         y: {
           min: 0,
           max: 100,
-          grid: { color: 'rgba(255,255,255,0.04)' },
-          ticks: { color: '#64748b', font: { size: 10 }, callback: function(v) { return v + '%'; } },
+          grid: { color: gridColor },
+          ticks: { color: textColor, font: { size: 10 }, callback: function(v) { return v + '%'; } },
           border: { display: false }
         }
       },
