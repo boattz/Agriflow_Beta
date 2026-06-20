@@ -74,36 +74,55 @@ function setESP32Status(connected) {
   document.getElementById('esp-txt').textContent = connected ? 'Connected' : 'No data';
 }
 
+var lastSeenText = '';
+var lastSeenState = '';
 function updateLastSeen() {
   var dot = document.getElementById('esp-dot');
   var txt = document.getElementById('esp-txt');
+  var lastVal = document.getElementById('mini-last-val');
   if (!lastReadingTime) {
-    dot.className = 'dot offline';
-    txt.textContent = 'No data';
-    document.getElementById('mini-last-val').textContent = '—';
+    if (lastSeenState !== 'nodata') {
+      dot.className = 'dot offline';
+      txt.textContent = 'No data';
+      lastVal.textContent = '—';
+      lastSeenState = 'nodata';
+    }
     return;
   }
   var diff = Math.floor((Date.now() - lastReadingTime) / 1000);
-  if (diff < 30) { dot.className = 'dot online'; txt.textContent = 'Connected'; }
-  else { dot.className = 'dot offline'; txt.textContent = 'Offline'; }
+  var newState = diff < 30 ? 'online' : 'offline';
+  if (newState !== lastSeenState) {
+    dot.className = 'dot ' + newState;
+    txt.textContent = newState === 'online' ? 'Connected' : 'Offline';
+    lastSeenState = newState;
+  }
   var text;
   if (diff < 5) text = 'Just now';
   else if (diff < 60) text = diff + 's ago';
   else if (diff < 3600) text = Math.floor(diff / 60) + 'm ago';
   else text = Math.floor(diff / 3600) + 'h ago';
-  document.getElementById('mini-last-val').textContent = text;
+  if (text !== lastSeenText) {
+    lastVal.textContent = text;
+    lastSeenText = text;
+  }
 }
 setInterval(updateLastSeen, 1000);
 
 // Ring
 var RING_CIRC = 502;
+var ringArc, moistVal, moistFill;
+function cacheDom() {
+  ringArc = document.getElementById('ring-arc');
+  moistVal = document.getElementById('moist-val');
+  moistFill = document.getElementById('moist-fill');
+}
 function updateRing(pct, color) {
-  document.getElementById('ring-arc').style.strokeDashoffset = RING_CIRC - (pct / 100) * RING_CIRC;
-  document.getElementById('ring-arc').style.stroke = color;
-  document.getElementById('moist-val').textContent = pct;
-  document.getElementById('moist-val').style.color = color;
-  document.getElementById('moist-fill').style.width = pct + '%';
-  document.getElementById('moist-fill').style.background = color;
+  ringArc.style.strokeDashoffset = RING_CIRC - (pct / 100) * RING_CIRC;
+  ringArc.style.stroke = color;
+  moistVal.textContent = pct;
+  moistVal.style.color = color;
+  moistFill.style.width = pct + '%';
+  moistFill.style.background = color;
 }
 
 function setSoilLevel(level) {
@@ -299,10 +318,19 @@ function initChart() {
 
 function updateChart() {
   if (!chart) return;
-  var slice = history.slice().reverse().slice(-chartRange);
-  chart.data.labels = slice.map(function(r) { return new Date(r.timestamp).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'}); });
-  chart.data.datasets[0].data = slice.map(function(r) { return parseFloat(r.moisture); });
-  valveStates = slice.map(function(r) { return r.valve === 'OPEN' ? 'OPEN' : 'CLOSED'; });
+  var len = history.length;
+  var start = Math.max(0, len - chartRange);
+  var labels = [];
+  var data = [];
+  valveStates = [];
+  for (var i = start; i < len; i++) {
+    var r = history[i];
+    labels.push(new Date(r.timestamp).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'}));
+    data.push(parseFloat(r.moisture));
+    valveStates.push(r.valve === 'OPEN' ? 'OPEN' : 'CLOSED');
+  }
+  chart.data.labels = labels;
+  chart.data.datasets[0].data = data;
   chart.update('none');
 }
 
@@ -410,7 +438,8 @@ function connectSSE() {
     setStatus('online'); 
     clearTimeout(rTimer); 
     updateOfflineState(false); 
-    console.log('[SSE] Connected');
+    stopPolling();
+    console.log('[SSE] Connected — polling stopped');
   };
   
   evtSrc.onmessage = function(e) {
@@ -442,6 +471,7 @@ function connectSSE() {
     setStatus('offline');
     updateOfflineState(true);
     if (evtSrc) evtSrc.close();
+    startPolling();
     var retryDelay = Math.min(30000, 2000 * Math.pow(2, reconnectAttempts));
     reconnectAttempts++;
     rTimer = setTimeout(connectSSE, retryDelay);
@@ -527,7 +557,13 @@ document.getElementById('guide-modal').addEventListener('click', function(e) { i
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') document.getElementById('guide-modal').classList.remove('open'); });
 
 // Init
+cacheDom();
 initChart();
 loadConfig();
 startPolling(); // Polling first (primary sync)
 connectSSE();  // SSE as bonus
+
+// Service Worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(function() {});
+}

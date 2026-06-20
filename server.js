@@ -46,6 +46,12 @@ function rateLimit(max, windowMs) {
     next();
   };
 }
+setInterval(() => {
+  const now = Date.now();
+  for (const ip of Object.keys(rateLimitStore)) {
+    if (rateLimitStore[ip].reset < now) delete rateLimitStore[ip];
+  }
+}, 60000);
 
 // ── Health Check (for Render.com) ─────────────
 app.get('/api/health', (req, res) => {
@@ -63,6 +69,11 @@ app.use(express.static(__dirname, {
     const base = path.basename(filePath);
     if (!STATIC_ALLOWED.includes(ext) || BLOCKED_FILES.includes(base)) {
       res.status(403).end();
+    }
+    if (ext === '.html') {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (ext === '.js' || ext === '.css') {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
   }
 }));
@@ -116,6 +127,9 @@ async function connectDB() {
       VALUES (1, 40, 3)
       ON CONFLICT (id) DO NOTHING
     `);
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_readings_created_at ON readings (created_at DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_readings_device ON readings (device)`);
 
     client.release();
     dbReady = true;
@@ -273,7 +287,7 @@ app.get('/api/data', async (req, res) => {
   if (dbReady) {
     try {
       const result = await pool.query(
-        'SELECT * FROM readings ORDER BY created_at DESC LIMIT 200'
+        'SELECT device, raw, moisture, valve, level_label, level_color, humidity, temperature, heat_index, created_at FROM readings ORDER BY created_at DESC LIMIT 200'
       );
 
       history = result.rows.map(r => ({
@@ -296,12 +310,15 @@ app.get('/api/data', async (req, res) => {
         devices[r.device].count++;
       }
 
-      // Get total count per device
-      for (const d of Object.keys(devices)) {
+      const deviceNames = Object.keys(devices);
+      if (deviceNames.length) {
         const countResult = await pool.query(
-          'SELECT COUNT(*) as count FROM readings WHERE device = $1', [d]
+          'SELECT device, COUNT(*) as count FROM readings WHERE device = ANY($1) GROUP BY device',
+          [deviceNames]
         );
-        devices[d].count = parseInt(countResult.rows[0].count);
+        for (const row of countResult.rows) {
+          if (devices[row.device]) devices[row.device].count = parseInt(row.count);
+        }
       }
 
     } catch (err) {
@@ -326,7 +343,7 @@ app.get('/api/events', (req, res) => {
     if (dbReady) {
       try {
         const result = await pool.query(
-          'SELECT * FROM readings ORDER BY created_at DESC LIMIT 200'
+          'SELECT device, raw, moisture, valve, level_label, level_color, humidity, temperature, heat_index, created_at FROM readings ORDER BY created_at DESC LIMIT 200'
         );
         initData.history = result.rows.map(r => ({
           device: r.device, raw: r.raw,
