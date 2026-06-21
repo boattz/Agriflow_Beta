@@ -556,14 +556,16 @@ function saveConfig(data) {
 }
 
 function handleConfigUpdate(cfg) {
-  var c = clampConfig(cfg); currentConfig = c; pendingConfig = Object.assign({}, c);
+  var c = clampConfig(cfg);
+  var changed = c.wateringMinutes !== currentConfig.wateringMinutes;
+  currentConfig = c; pendingConfig = Object.assign({}, c);
   document.getElementById('cfg-threshold').value = c.openThreshold;
   document.getElementById('cfg-threshold-val').textContent = c.openThreshold;
   document.getElementById('cfg-duration').value = c.wateringMinutes;
   document.getElementById('cfg-duration-val').textContent = c.wateringMinutes;
   updatePresets('threshold-presets', c.openThreshold);
   updatePresets('duration-presets', c.wateringMinutes);
-  if (lastValveState === 'OPEN' && countdownInterval) startCountdown(c.wateringMinutes);
+  if (lastValveState === 'OPEN' && countdownInterval && changed) startCountdown(c.wateringMinutes);
 }
 
 function updatePresets(id, value) {
