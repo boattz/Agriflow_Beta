@@ -188,7 +188,7 @@ void loop() {
   }
   Serial.println();
 
-  // ---------- Send to Dashboard (every 30 seconds) ----------
+  // ---------- Send to Dashboard (every 10 seconds) ----------
   if (millis() - lastSendTime >= SEND_INTERVAL && WiFi.status() == WL_CONNECTED) {
     lastSendTime = millis();
 
@@ -203,14 +203,24 @@ void loop() {
 
     Serial.print("[SEND] "); Serial.println(json);
 
+    // Pre-check: DNS
+    IPAddress resolved;
+    if (WiFi.hostByName("agriflow-mvt7.onrender.com", resolved)) {
+      Serial.print("[NET] DNS OK → "); Serial.println(resolved);
+    } else {
+      Serial.println("[NET] DNS FAILED — no internet?");
+    }
+
     int httpCode = 0;
     int retries = 0;
-    while (httpCode != 200 && retries <= 2) {
+    while (httpCode != 200 && retries <= 3) {
       HTTPClient http;
       WiFiClientSecure secureClient;
       WiFiClient plainClient;
+
       if (cfg.serverUrl.startsWith("https")) {
         secureClient.setInsecure();
+        secureClient.setTimeout(30000);
         http.begin(secureClient, cfg.serverUrl);
       } else {
         http.begin(plainClient, cfg.serverUrl);
@@ -229,10 +239,10 @@ void loop() {
       }
       http.end();
 
-      if (httpCode != 200 && retries < 2) {
+      if (httpCode != 200 && retries < 3) {
         retries++;
+        int waitSec = retries * 10;
         Serial.print("[RETRY "); Serial.print(retries); Serial.print("] wait ");
-        int waitSec = retries * 8;
         Serial.print(waitSec); Serial.println("s ...");
         delay(waitSec * 1000UL);
       } else {
