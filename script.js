@@ -93,7 +93,7 @@ function updateLastSeen() {
     return;
   }
   var diff = Math.floor((Date.now() - lastReadingTime) / 1000);
-  var newState = diff < 30 ? 'online' : 'offline';
+  var newState = diff < 60 ? 'online' : 'offline';
   if (newState !== lastSeenState) {
     dot.className = 'dot ' + newState;
     txt.textContent = newState === 'online' ? 'Connected' : 'Disconnected';
@@ -452,7 +452,7 @@ function startPolling() {
             console.log('[POLL] New sensor data!');
             processReading(data.latest, true);
             var diffSec = Math.floor((Date.now() - latestTime) / 1000);
-            if (diffSec < 30) {
+            if (diffSec < 60) {
               lastReadingTime = Date.now();
               updateLastSeen();
             }

@@ -29,7 +29,7 @@ unsigned long resetPressedSince = 0;
 
 // ==================== Send Timer ====================
 unsigned long lastSendTime = 0;
-const unsigned long SEND_INTERVAL = 30000; // 30 seconds
+const unsigned long SEND_INTERVAL = 5000; // 10 seconds
 
 // ==================== WiFi Connect ====================
 void connectWiFi() {
@@ -182,18 +182,6 @@ void loop() {
   if (millis() - lastSendTime >= SEND_INTERVAL && WiFi.status() == WL_CONNECTED) {
     lastSendTime = millis();
 
-    HTTPClient http;
-    if (cfg.serverUrl.startsWith("https")) {
-      WiFiClientSecure secureClient;
-      secureClient.setInsecure();
-      http.begin(secureClient, cfg.serverUrl);
-    } else {
-      WiFiClient client;
-      http.begin(client, cfg.serverUrl);
-    }
-    http.addHeader("Content-Type", "application/json");
-    http.setTimeout(10000);
-
     String json = "{";
     json += "\"device\":\"ESP32_Sprinkler\",";
     json += "\"raw\":" + String(rawValue) + ",";
@@ -203,17 +191,44 @@ void loop() {
     json += "\"valve\":\"" + String(valveOpen ? "OPEN" : "CLOSE") + "\"";
     json += "}";
 
-    int httpCode = http.POST(json);
+    Serial.print("[SEND] "); Serial.println(json);
 
-    if (httpCode == 200) {
-      String response = http.getString();
-      parseConfig(response);
-      Serial.println("[OK] Sent + config synced");
-    } else {
-      Serial.print("[ERR] HTTP "); Serial.println(httpCode);
+    int httpCode = 0;
+    int retries = 0;
+    while (httpCode != 200 && retries <= 2) {
+      HTTPClient http;
+      WiFiClientSecure secureClient;
+      WiFiClient plainClient;
+      if (cfg.serverUrl.startsWith("https")) {
+        secureClient.setInsecure();
+        http.begin(secureClient, cfg.serverUrl);
+      } else {
+        http.begin(plainClient, cfg.serverUrl);
+      }
+      http.addHeader("Content-Type", "application/json");
+      http.setTimeout(30000);
+
+      httpCode = http.POST(json);
+
+      if (httpCode == 200) {
+        String response = http.getString();
+        parseConfig(response);
+        Serial.println("[OK] Sent + config synced");
+      } else {
+        Serial.print("[ERR] HTTP "); Serial.println(httpCode);
+      }
+      http.end();
+
+      if (httpCode != 200 && retries < 2) {
+        retries++;
+        Serial.print("[RETRY "); Serial.print(retries); Serial.print("] wait ");
+        int waitSec = retries * 8;
+        Serial.print(waitSec); Serial.println("s ...");
+        delay(waitSec * 1000UL);
+      } else {
+        break;
+      }
     }
-
-    http.end();
   }
 
   delay(100); // Small delay to prevent CPU spinning
