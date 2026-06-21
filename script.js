@@ -190,7 +190,7 @@ function stopCountdown() {
 
 function updateOfflineState(offline) {
   isOffline = offline;
-  if (offline) { stopCountdown(); hideClock(); firstReading = true; setESP32Status(false); }
+  if (offline) { hideClock(); firstReading = true; setESP32Status(false); }
 }
 
 // Table
