@@ -161,7 +161,7 @@ function updateValve(valve, wateringMinutes) {
   status.style.color = isOpen ? 'var(--green)' : 'var(--muted)';
   sub.textContent = isOpen ? 'In progress...' : 'Waiting for soil to dry';
   icon.className = isOpen ? 'valve-icon active' : 'valve-icon';
-  if (isOpen && lastValveState !== 'OPEN' && wateringMinutes && !isOffline) startCountdown(wateringMinutes);
+  if (isOpen && !countdownInterval && wateringMinutes && !isOffline) startCountdown(wateringMinutes);
   if (!isOpen) stopCountdown();
   lastValveState = valve;
 }

@@ -13,7 +13,7 @@ const int servoPin = 18;
 
 // ==================== Calibration ====================
 const int dryValue = 3200;
-const int wetValue = 1400;
+const int wetValue = 800;
 
 // ==================== Config (synced from dashboard) ====================
 int openThreshold = 40;
