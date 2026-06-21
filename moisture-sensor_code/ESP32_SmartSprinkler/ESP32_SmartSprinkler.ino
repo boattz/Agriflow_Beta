@@ -122,6 +122,16 @@ void setup() {
 
   connectWiFi();
 
+  // Test internet connectivity
+  Serial.println("[NET] Testing internet...");
+  WiFiClient testClient;
+  if (testClient.connect("agriflow-mvt7.onrender.com", 443)) {
+    Serial.println("[NET] Render reachable ✓");
+    testClient.stop();
+  } else {
+    Serial.println("[NET] Render UNREACHABLE — check WiFi/internet");
+  }
+
   Serial.println("Agriflow Started");
   Serial.print("Server: ");
   Serial.println(cfg.serverUrl);
