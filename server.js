@@ -117,9 +117,12 @@ async function connectDB() {
         open_threshold INT DEFAULT 40,
         watering_minutes INT DEFAULT 3,
         reset_wifi BOOLEAN DEFAULT FALSE,
+        crop_id VARCHAR(50) DEFAULT 'custom',
         updated_at TIMESTAMPTZ DEFAULT NOW()
       )
     `);
+    // Migration for existing DBs
+    await client.query(`ALTER TABLE config ADD COLUMN IF NOT EXISTS crop_id VARCHAR(50) DEFAULT 'custom'`);
 
     // Insert default config if not exist
     await client.query(`
@@ -143,10 +146,38 @@ async function connectDB() {
 
 connectDB();
 
+// ── Crop profiles (research-backed presets) ──
+// threshold = open valve when moisture drops below (%). minutes = watering duration estimate.
+// Sources: FAO-56 Table 22 (p = depletion fraction, threshold ≈ (1-p)×100),
+// Thai research (durian/cassava/mangosteen/rubber/jujube), US Extension (potato/watermelon/citrus).
+// confidence: high | medium | low (low = proxy, needs field tuning).
+const CROP_PROFILES = [
+  { id: 'rice',       name: 'ข้าว',            threshold: 70, minutes: 10, source: 'FAO-56 p=0.20 saturation (paddy)', confidence: 'high',   hint: 'นาข้าวชอบแฉะ รักษาดินชื้นสูง' },
+  { id: 'corn',       name: 'ข้าวโพด',         threshold: 45, minutes: 5,  source: 'FAO-56 p=0.50-0.55 (maize)', confidence: 'high', hint: 'ช่วงออกไหม-ติดเมล็ดห้ามขาดน้ำ' },
+  { id: 'rubber',     name: 'ยางพารา',         threshold: 40, minutes: 3,  source: 'FAO-56 p=0.40 + REW<0.4 เครียด (Sopharat)', confidence: 'medium', hint: 'ต้นโตทนแล้ง ต้นเล็กควรใช้ ~50%' },
+  { id: 'longan',     name: 'ลำไย',            threshold: 45, minutes: 5,  source: 'proxy: FAO fruit trees p=0.50', confidence: 'low', hint: 'ค่าประมาณ — ช่วงติดผลต้องการน้ำสม่ำเสมอ ปรับหน้างาน' },
+  { id: 'lychee',     name: 'ลิ้นจี่',          threshold: 45, minutes: 5,  source: 'proxy: FAO fruit trees p=0.50', confidence: 'low', hint: 'ค่าประมาณ — ระวังแตกผลถ้าน้ำแกว่ง' },
+  { id: 'durian',     name: 'ทุเรียน',          threshold: 45, minutes: 5,  source: 'Thai res: VWC<0.19 เครียด, avg 65%/crit 20%', confidence: 'medium', hint: 'ขาดน้ำดอกร่วง แฉะเกินรากเน่า' },
+  { id: 'cassava',    name: 'มันสำปะหลัง',     threshold: 35, minutes: 2,  source: 'FAO-56 p=0.35 + critical 39%/15.7% AWHC (Machikowa)', confidence: 'medium', hint: 'ทนแล้ง 3 เดือนแรกห้ามขาดน้ำ ดินทรายปล่อยต่ำได้' },
+  { id: 'potato',     name: 'มันอาลู (มันฝรั่ง)', threshold: 55, minutes: 4, source: 'FAO-56 p=0.35 + UC/Maine 60% AW', confidence: 'high', hint: 'รากตื้น ช่วงลงหัวห้ามแห้ง' },
+  { id: 'shallot',    name: 'หอม',             threshold: 55, minutes: 3,  source: 'FAO-56 p=0.30 (onion)', confidence: 'high', hint: 'รากตื้น ต้องรดบ่อยครั้งละน้อย' },
+  { id: 'garlic',     name: 'กระเทียม',        threshold: 55, minutes: 3,  source: 'FAO-56 p=0.30 (garlic)', confidence: 'high', hint: 'รากตื้น ช่วงลงหัวห้ามแฉะเกิน' },
+  { id: 'mangosteen', name: 'มังคุด',           threshold: 45, minutes: 5,  source: 'Salakpetch stress -1.0MPa ทำดอก + IoT 2024', confidence: 'medium', hint: 'ช่วงทำดอกต้องงดน้ำก่อน แล้วค่อยอัดน้ำ' },
+  { id: 'jujube',     name: 'พุทรา',           threshold: 40, minutes: 3,  source: '80-100% ETc ดีสุด (Bai/Liu)', confidence: 'medium', hint: 'ทนแล้งปานกลาง ไม่ชอบแฉะ' },
+  { id: 'watermelon', name: 'แตงโม',           threshold: 50, minutes: 4,  source: 'FAO-56 p=0.40 + เริ่มรด -30kPa (Huh)', confidence: 'high', hint: 'ช่วงขยายผลต้องการน้ำสม่ำเสมอ ใกล้เก็บลดน้ำเพิ่มหวาน' },
+  { id: 'pumpkin',    name: 'ฟักทอง',          threshold: 50, minutes: 4,  source: 'FAO-56 p=0.35 (pumpkin/winter squash)', confidence: 'high', hint: 'ช่วงติดผล-ขยายผลห้ามขาดน้ำ' },
+  { id: 'kitchen',    name: 'ผักสวนครัว',      threshold: 55, minutes: 3,  source: 'FAO-56 p=0.30-0.45 (leafy/small veg)', confidence: 'medium', hint: 'ผักใบชอบชื้นสม่ำเสมอ' },
+  { id: 'pomelo',     name: 'ส้มโอ',           threshold: 45, minutes: 5,  source: 'FAO citrus p=0.50 + UF 25-33%/50-66%', confidence: 'high', hint: 'ออกดอก-ติดผลอ่อนใช้น้ำมาก หน้าฝนยอมแห้งได้บ้าง' },
+  { id: 'guava',      name: 'ฝรั่ง',            threshold: 40, minutes: 4,  source: 'proxy: FAO citrus/fruit p=0.50', confidence: 'low', hint: 'ค่าประมาณ — ห่อผลแล้วรดสม่ำเสมอ' },
+  { id: 'custom',     name: 'กำหนดเอง',        threshold: null, minutes: null, source: 'user-defined', confidence: 'high', hint: 'ปรับ slider เองตามดินหน้างาน' }
+];
+function findCrop(id) { return CROP_PROFILES.find(c => c.id === id) || null; }
+
 // ── Config ───────────────────────────────────
 let config = {
   openThreshold:   40,
   wateringMinutes: 3,
+  cropId:          'custom',
   resetWifi:       false
 };
 
@@ -157,6 +188,7 @@ async function loadConfig() {
     if (result.rows.length) {
       config.openThreshold   = result.rows[0].open_threshold;
       config.wateringMinutes = result.rows[0].watering_minutes;
+      config.cropId          = result.rows[0].crop_id || 'custom';
     }
   } catch (err) {
     console.error('[DB] Load config failed:', err.message);
@@ -167,8 +199,8 @@ async function saveConfig() {
   if (!dbReady) return;
   try {
     await pool.query(
-      'UPDATE config SET open_threshold = $1, watering_minutes = $2, reset_wifi = $3 WHERE id = 1',
-      [config.openThreshold, config.wateringMinutes, config.resetWifi]
+      'UPDATE config SET open_threshold = $1, watering_minutes = $2, reset_wifi = $3, crop_id = $4 WHERE id = 1',
+      [config.openThreshold, config.wateringMinutes, config.resetWifi, config.cropId]
     );
   } catch (err) {
     console.error('[DB] Save config failed:', err.message);
@@ -201,6 +233,11 @@ function soilLevel(moisture) {
   return                                            { label: 'Saturated', color: '#7b2ff7' };
 }
 
+// ── GET /api/crops ───────────────────────────
+app.get('/api/crops', (req, res) => {
+  res.json(CROP_PROFILES);
+});
+
 // ── GET /api/config ──────────────────────────
 app.get('/api/config', (req, res) => {
   res.json(config);
@@ -208,12 +245,32 @@ app.get('/api/config', (req, res) => {
 
 // ── POST /api/config ─────────────────────────
 app.post('/api/config', rateLimit(30, 60000), async (req, res) => {
-  const { openThreshold, wateringMinutes } = req.body;
+  const { openThreshold, wateringMinutes, cropId } = req.body;
 
+  // If a known crop preset is selected, auto-fill its values
+  if (cropId !== undefined && cropId !== 'custom') {
+    const crop = findCrop(String(cropId));
+    if (crop) {
+      config.cropId          = crop.id;
+      config.openThreshold   = crop.threshold;
+      config.wateringMinutes = crop.minutes;
+      console.log(`[CONFIG] Crop ${crop.name} <${config.openThreshold}% | Water ${config.wateringMinutes} min`);
+      await saveConfig();
+      broadcast({ type: 'config', data: config });
+      return res.json({ ok: true, config });
+    }
+  }
+
+  // Manual adjustment → mark as custom
   if (openThreshold !== undefined)   config.openThreshold   = Math.max(5, Math.min(95, parseInt(openThreshold)));
   if (wateringMinutes !== undefined) config.wateringMinutes = Math.max(1, Math.min(30, parseInt(wateringMinutes)));
+  if (cropId !== undefined) {
+    config.cropId = (cropId === 'custom' || findCrop(String(cropId))) ? String(cropId) : 'custom';
+  } else {
+    config.cropId = 'custom'; // any manual slider move drops the preset
+  }
 
-  console.log(`[CONFIG] Open <${config.openThreshold}% | Water ${config.wateringMinutes} min`);
+  console.log(`[CONFIG] Open <${config.openThreshold}% | Water ${config.wateringMinutes} min (${config.cropId})`);
   await saveConfig();
   broadcast({ type: 'config', data: config });
   res.json({ ok: true, config });
@@ -387,6 +444,6 @@ app.listen(PORT, '0.0.0.0', async () => {
   console.log(`║  ESP32 URL : POST /api/sensor                   ║`);
   console.log('╚══════════════════════════════════════════════════╝');
   console.log('');
-  console.log(`Config: Open <${config.openThreshold}% | Water ${config.wateringMinutes} min`);
+  console.log(`Config: Open <${config.openThreshold}% | Water ${config.wateringMinutes} min (${config.cropId})`);
   console.log('');
 });

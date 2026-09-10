@@ -9,7 +9,7 @@ let evtSrc = null;
 let rTimer = null;
 let countdownInterval = null;
 let countdownEndTime = null;
-let currentConfig = { wateringMinutes: 3 };
+let currentConfig = { wateringMinutes: 3, openThreshold: 40, cropId: 'custom' };
 let pendingConfig = null;
 let lastValveState = 'CLOSE';
 let isOffline = false;
@@ -426,8 +426,9 @@ function startPolling() {
       .then(function(r) { return r.json(); })
       .then(function(cfg) {
         var c = clampConfig(cfg);
-        if (c.openThreshold !== currentConfig.openThreshold || 
-            c.wateringMinutes !== currentConfig.wateringMinutes) {
+        if (c.openThreshold !== currentConfig.openThreshold ||
+            c.wateringMinutes !== currentConfig.wateringMinutes ||
+            c.cropId !== currentConfig.cropId) {
           console.log('[POLL] Config change detected!', c);
           handleConfigUpdate(c);
           showToast('Synced', 'Settings updated');
@@ -531,14 +532,66 @@ function connectSSE() {
   };
 }
 
+// ── Crop presets (mirror of server; refreshed from /api/crops when online) ──
+let cropProfiles = [
+  { id: 'rice', name: 'ข้าว', threshold: 70, minutes: 10, source: 'FAO-56 p=0.20', confidence: 'high', hint: 'นาข้าวชอบแฉะ' },
+  { id: 'corn', name: 'ข้าวโพด', threshold: 45, minutes: 5, source: 'FAO-56 p=0.50-0.55', confidence: 'high', hint: '' },
+  { id: 'rubber', name: 'ยางพารา', threshold: 40, minutes: 3, source: 'FAO-56 p=0.40', confidence: 'medium', hint: '' },
+  { id: 'longan', name: 'ลำไย', threshold: 45, minutes: 5, source: 'proxy fruit trees', confidence: 'low', hint: '' },
+  { id: 'lychee', name: 'ลิ้นจี่', threshold: 45, minutes: 5, source: 'proxy fruit trees', confidence: 'low', hint: '' },
+  { id: 'durian', name: 'ทุเรียน', threshold: 45, minutes: 5, source: 'Thai res VWC<0.19', confidence: 'medium', hint: '' },
+  { id: 'cassava', name: 'มันสำปะหลัง', threshold: 35, minutes: 2, source: 'FAO-56 p=0.35', confidence: 'medium', hint: '' },
+  { id: 'potato', name: 'มันอาลู (มันฝรั่ง)', threshold: 55, minutes: 4, source: 'FAO-56 p=0.35', confidence: 'high', hint: '' },
+  { id: 'shallot', name: 'หอม', threshold: 55, minutes: 3, source: 'FAO-56 p=0.30', confidence: 'high', hint: '' },
+  { id: 'garlic', name: 'กระเทียม', threshold: 55, minutes: 3, source: 'FAO-56 p=0.30', confidence: 'high', hint: '' },
+  { id: 'mangosteen', name: 'มังคุด', threshold: 45, minutes: 5, source: 'Salakpetch/IoT 2024', confidence: 'medium', hint: '' },
+  { id: 'jujube', name: 'พุทรา', threshold: 40, minutes: 3, source: '80-100% ETc', confidence: 'medium', hint: '' },
+  { id: 'watermelon', name: 'แตงโม', threshold: 50, minutes: 4, source: 'FAO-56 p=0.40', confidence: 'high', hint: '' },
+  { id: 'pumpkin', name: 'ฟักทอง', threshold: 50, minutes: 4, source: 'FAO-56 p=0.35', confidence: 'high', hint: '' },
+  { id: 'kitchen', name: 'ผักสวนครัว', threshold: 55, minutes: 3, source: 'FAO-56 p=0.30-0.45', confidence: 'medium', hint: '' },
+  { id: 'pomelo', name: 'ส้มโอ', threshold: 45, minutes: 5, source: 'FAO citrus p=0.50', confidence: 'high', hint: '' },
+  { id: 'guava', name: 'ฝรั่ง', threshold: 40, minutes: 4, source: 'proxy citrus/fruit', confidence: 'low', hint: '' },
+  { id: 'custom', name: 'กำหนดเอง', threshold: null, minutes: null, source: 'user-defined', confidence: 'high', hint: '' }
+];
+function findCropProfile(id) { return cropProfiles.filter(function(c) { return c.id === id; })[0] || null; }
+
+function updateCropHint(crop) {
+  var el = document.getElementById('crop-hint');
+  if (!el) return;
+  if (!crop || crop.id === 'custom') { el.textContent = 'ปรับ slider เองตามดินหน้างาน — เวลารดเป็นค่าประมาณตามระบบน้ำ'; return; }
+  var conf = crop.confidence === 'low' ? 'ค่าประมาณ — ควรปรับหน้างาน' : crop.confidence === 'medium' ? 'เชื่อถือปานกลาง' : 'งานวิจัยรองรับดี';
+  el.textContent = 'เกณฑ์ ' + crop.name + ': <' + crop.threshold + '% รด ' + crop.minutes + ' นาที | ' + crop.source + ' (' + conf + ')' + (crop.hint ? ' — ' + crop.hint : '');
+}
+
+function populateCropSelect(selectedId) {
+  var sel = document.getElementById('cfg-crop');
+  if (!sel) return;
+  var cur = selectedId || sel.value || 'custom';
+  var html = '';
+  for (var i = 0; i < cropProfiles.length; i++) {
+    var c = cropProfiles[i];
+    html += '<option value="' + c.id + '"' + (c.id === cur ? ' selected' : '') + '>' + c.name + (c.threshold != null ? ' — <' + c.threshold + '%' : '') + '</option>';
+  }
+  sel.innerHTML = html;
+}
+
+function loadCrops() {
+  fetch('/api/crops').then(function(r) { return r.json(); }).then(function(list) {
+    if (list && list.length) { cropProfiles = list; populateCropSelect(currentConfig.cropId); updateCropHint(findCropProfile(currentConfig.cropId)); }
+  }).catch(function() { populateCropSelect(currentConfig.cropId); });
+}
+
 // Config
 function clampConfig(cfg) {
-  return { openThreshold: Math.min(95, Math.max(5, Math.round(cfg.openThreshold || 40))), wateringMinutes: Math.min(30, Math.max(1, Math.round(cfg.wateringMinutes || 3))) };
+  var cropId = (cfg && cfg.cropId) || 'custom';
+  if (!findCropProfile(cropId)) cropId = 'custom';
+  return { openThreshold: Math.min(95, Math.max(5, Math.round((cfg && cfg.openThreshold) || 40))), wateringMinutes: Math.min(30, Math.max(1, Math.round((cfg && cfg.wateringMinutes) || 3))), cropId: cropId };
 }
 
 function loadConfig() {
   fetch('/api/config').then(function(r) { return r.json(); }).then(function(cfg) {
     var c = clampConfig(cfg); currentConfig = c; pendingConfig = Object.assign({}, c);
+    populateCropSelect(c.cropId); updateCropHint(findCropProfile(c.cropId));
     document.getElementById('cfg-threshold').value = c.openThreshold;
     document.getElementById('cfg-threshold-val').textContent = c.openThreshold;
     document.getElementById('cfg-duration').value = c.wateringMinutes;
@@ -559,6 +612,7 @@ function handleConfigUpdate(cfg) {
   var c = clampConfig(cfg);
   var changed = c.wateringMinutes !== currentConfig.wateringMinutes;
   currentConfig = c; pendingConfig = Object.assign({}, c);
+  populateCropSelect(c.cropId); updateCropHint(findCropProfile(c.cropId));
   document.getElementById('cfg-threshold').value = c.openThreshold;
   document.getElementById('cfg-threshold-val').textContent = c.openThreshold;
   document.getElementById('cfg-duration').value = c.wateringMinutes;
@@ -572,14 +626,43 @@ function updatePresets(id, value) {
   document.querySelectorAll('#' + id + ' .preset').forEach(function(btn) { btn.classList.toggle('active', parseInt(btn.dataset.val) === value); });
 }
 
-// Slider events
+// Slider events (manual move → drop preset to custom)
+function markCustom() {
+  pendingConfig = pendingConfig || Object.assign({}, currentConfig);
+  pendingConfig.cropId = 'custom';
+  var sel = document.getElementById('cfg-crop');
+  if (sel) sel.value = 'custom';
+  updateCropHint(findCropProfile('custom'));
+}
 document.getElementById('cfg-threshold').addEventListener('input', function(e) {
   var val = parseInt(e.target.value); pendingConfig = pendingConfig || Object.assign({}, currentConfig); pendingConfig.openThreshold = val;
   document.getElementById('cfg-threshold-val').textContent = val; updatePresets('threshold-presets', val);
+  markCustom();
 });
 document.getElementById('cfg-duration').addEventListener('input', function(e) {
   var val = parseInt(e.target.value); pendingConfig = pendingConfig || Object.assign({}, currentConfig); pendingConfig.wateringMinutes = val;
   document.getElementById('cfg-duration-val').textContent = val; updatePresets('duration-presets', val);
+  markCustom();
+});
+
+// Crop select — picking a crop auto-fills threshold + duration (save to apply)
+document.getElementById('cfg-crop').addEventListener('change', function(e) {
+  var crop = findCropProfile(e.target.value);
+  if (!crop) return;
+  updateCropHint(crop);
+  if (crop.id === 'custom') {
+    pendingConfig = pendingConfig || Object.assign({}, currentConfig);
+    pendingConfig.cropId = 'custom';
+    return;
+  }
+  pendingConfig = { openThreshold: crop.threshold, wateringMinutes: crop.minutes, cropId: crop.id };
+  document.getElementById('cfg-threshold').value = crop.threshold;
+  document.getElementById('cfg-threshold-val').textContent = crop.threshold;
+  document.getElementById('cfg-duration').value = crop.minutes;
+  document.getElementById('cfg-duration-val').textContent = crop.minutes;
+  updatePresets('threshold-presets', crop.threshold);
+  updatePresets('duration-presets', crop.minutes);
+  showToast('เกณฑ์' + crop.name, '<' + crop.threshold + '% รด ' + crop.minutes + ' นาที — กด Save เพื่อใช้');
 });
 
 // Preset buttons
@@ -614,7 +697,9 @@ document.addEventListener('keydown', function(e) { if (e.key === 'Escape') docum
 // Init
 cacheDom();
 initChart();
+populateCropSelect('custom');
 loadConfig();
+loadCrops();
 startPolling();
 connectSSE();
 
