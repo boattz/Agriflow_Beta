@@ -181,6 +181,24 @@ let config = {
   resetWifi:       false
 };
 
+// ── Manual valve override (temporary, in-memory only) ──
+// { action: 'open'|'close', expiresAt: epochMs } | null
+let valveOverride = null;
+function getValveOverride() {
+  if (valveOverride && valveOverride.expiresAt <= Date.now()) valveOverride = null;
+  return valveOverride;
+}
+function configWithOverride() {
+  return { ...config, valveOverride: getValveOverride() };
+}
+
+const RESET_TOKEN = process.env.RESET_TOKEN || '';
+function checkResetAuth(req) {
+  if (!RESET_TOKEN) return true; // local dev: no token configured → allow
+  const t = req.headers['x-reset-token'] || req.body?.token;
+  return t === RESET_TOKEN;
+}
+
 async function loadConfig() {
   if (!dbReady) return;
   try {
@@ -189,6 +207,7 @@ async function loadConfig() {
       config.openThreshold   = result.rows[0].open_threshold;
       config.wateringMinutes = result.rows[0].watering_minutes;
       config.cropId          = result.rows[0].crop_id || 'custom';
+      config.resetWifi       = !!result.rows[0].reset_wifi;
     }
   } catch (err) {
     console.error('[DB] Load config failed:', err.message);
@@ -240,7 +259,7 @@ app.get('/api/crops', (req, res) => {
 
 // ── GET /api/config ──────────────────────────
 app.get('/api/config', (req, res) => {
-  res.json(config);
+  res.json(configWithOverride());
 });
 
 // ── POST /api/config ─────────────────────────
@@ -256,8 +275,8 @@ app.post('/api/config', rateLimit(30, 60000), async (req, res) => {
       config.wateringMinutes = crop.minutes;
       console.log(`[CONFIG] Crop ${crop.name} <${config.openThreshold}% | Water ${config.wateringMinutes} min`);
       await saveConfig();
-      broadcast({ type: 'config', data: config });
-      return res.json({ ok: true, config });
+      broadcast({ type: 'config', data: configWithOverride() });
+      return res.json({ ok: true, config: configWithOverride() });
     }
   }
 
@@ -272,17 +291,39 @@ app.post('/api/config', rateLimit(30, 60000), async (req, res) => {
 
   console.log(`[CONFIG] Open <${config.openThreshold}% | Water ${config.wateringMinutes} min (${config.cropId})`);
   await saveConfig();
-  broadcast({ type: 'config', data: config });
-  res.json({ ok: true, config });
+  broadcast({ type: 'config', data: configWithOverride() });
+  res.json({ ok: true, config: configWithOverride() });
 });
 
 // ── POST /api/reset-wifi ─────────────────────
 app.post('/api/reset-wifi', rateLimit(5, 60000), async (req, res) => {
+  if (!checkResetAuth(req)) return res.status(403).json({ error: 'Invalid reset token' });
   console.log('[RESET] WiFi reset requested from dashboard');
   config.resetWifi = true;
   await saveConfig();
-  broadcast({ type: 'config', data: config });
+  broadcast({ type: 'config', data: configWithOverride() });
   res.json({ ok: true, message: 'ESP32 will reset WiFi on next send' });
+});
+
+// ── POST /api/valve (manual temporary override) ─
+// Body: { action: 'open'|'close'|'auto' }. open/close lasts wateringMinutes, auto clears.
+app.post('/api/valve', rateLimit(30, 60000), async (req, res) => {
+  const { action } = req.body || {};
+  if (action === 'auto' || action === 'clear') {
+    valveOverride = null;
+    broadcast({ type: 'config', data: configWithOverride() });
+    return res.json({ ok: true, config: configWithOverride() });
+  }
+  if (action !== 'open' && action !== 'close') {
+    return res.status(400).json({ error: "action must be 'open', 'close' or 'auto'" });
+  }
+  valveOverride = {
+    action,
+    expiresAt: Date.now() + Math.max(1, config.wateringMinutes) * 60000
+  };
+  console.log(`[VALVE] Manual ${action} for ${config.wateringMinutes} min`);
+  broadcast({ type: 'config', data: configWithOverride() });
+  res.json({ ok: true, config: configWithOverride() });
 });
 
 // ── POST /api/sensor ─────────────────────────
@@ -300,6 +341,15 @@ app.post('/api/sensor', rateLimit(60, 60000), async (req, res) => {
   const ts    = new Date().toISOString();
   const level = moisture !== undefined ? soilLevel(parseFloat(moisture)) : null;
 
+  // One-shot resetWifi: deliver true once, then clear so ESP doesn't bootloop
+  const resetOnce = config.resetWifi === true;
+  const snapshot = { ...configWithOverride(), resetWifi: resetOnce };
+  if (resetOnce) {
+    config.resetWifi = false;
+    saveConfig().catch(() => {});
+    broadcast({ type: 'config', data: configWithOverride() });
+  }
+
   const reading = {
     device:      id,
     raw:         raw         !== undefined ? parseInt(raw)                  : null,
@@ -309,7 +359,7 @@ app.post('/api/sensor', rateLimit(60, 60000), async (req, res) => {
     humidity:    humidity    !== undefined ? parseFloat(humidity).toFixed(1)    : null,
     temperature: temperature !== undefined ? parseFloat(temperature).toFixed(1) : null,
     heatIndex:   heatIndex   !== undefined ? parseFloat(heatIndex).toFixed(1)   : null,
-    config:      { ...config },
+    config:      snapshot,
     timestamp:   ts
   };
 
@@ -333,7 +383,7 @@ app.post('/api/sensor', rateLimit(60, 60000), async (req, res) => {
   console.log(`[${ts}] ${id} — ${mPart}${dhtPart}Valve: ${valve}${level ? ' | ' + level.label : ''}`);
 
   broadcast({ type: 'reading', data: reading });
-  res.json({ ok: true, reading, config });
+  res.json({ ok: true, reading, config: snapshot });
 });
 
 // ── GET /api/data ────────────────────────────
@@ -383,7 +433,7 @@ app.get('/api/data', async (req, res) => {
     }
   }
 
-  res.json({ latest: history[0] || null, history, devices, config });
+  res.json({ latest: history[0] || null, history, devices, config: configWithOverride() });
 });
 
 // ── SSE stream ───────────────────────────────
@@ -396,7 +446,7 @@ app.get('/api/events', (req, res) => {
 
   // Send initial data
   (async () => {
-    let initData = { latest: null, history: [], devices: {}, config };
+    let initData = { latest: null, history: [], devices: {}, config: configWithOverride() };
     if (dbReady) {
       try {
         const result = await pool.query(

@@ -91,7 +91,12 @@ On first boot, ESP32 will create a WiFi access point:
    NODE_ENV=development
    DATABASE_URL=postgresql://user:password@localhost:5432/agriflow
    RENDER_EXTERNAL_URL=https://your-app.onrender.com
+   RESET_TOKEN=ตั้งรหัสเอง-ใช้ยืนยันปุ่ม-Change-WiFi
    ```
+
+   > Servo ต่อไฟ 5V แยก + GND ร่วมกับ ESP32 อย่าเอาไฟจากขาบอร์ดโดยตรง
+   > คร่อม C 470–1000µF ที่ขั้วไฟ servo กันกระฉากตอนออกตัว
+   > จูนมุมวาล์วใน `.ino` (`VALVE_OPEN_ANGLE` เริ่ม 70 ถ้า 90 ชนสต็อปให้ลดลง)
 
 4. **Create PostgreSQL Database**:
    ```bash

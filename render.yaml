@@ -8,6 +8,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: RESET_TOKEN
+        sync: false
       - key: TIDB_HOST
         sync: false
       - key: TIDB_PORT

@@ -9,7 +9,7 @@ let evtSrc = null;
 let rTimer = null;
 let countdownInterval = null;
 let countdownEndTime = null;
-let currentConfig = { wateringMinutes: 3, openThreshold: 40, cropId: 'custom' };
+let currentConfig = { wateringMinutes: 3, openThreshold: 40, cropId: 'custom', valveOverride: null };
 let pendingConfig = null;
 let lastValveState = 'CLOSE';
 let isOffline = false;
@@ -428,7 +428,8 @@ function startPolling() {
         var c = clampConfig(cfg);
         if (c.openThreshold !== currentConfig.openThreshold ||
             c.wateringMinutes !== currentConfig.wateringMinutes ||
-            c.cropId !== currentConfig.cropId) {
+            c.cropId !== currentConfig.cropId ||
+            JSON.stringify(c.valveOverride) !== JSON.stringify(currentConfig.valveOverride)) {
           console.log('[POLL] Config change detected!', c);
           handleConfigUpdate(c);
           showToast('Synced', 'Settings updated');
@@ -585,7 +586,37 @@ function loadCrops() {
 function clampConfig(cfg) {
   var cropId = (cfg && cfg.cropId) || 'custom';
   if (!findCropProfile(cropId)) cropId = 'custom';
-  return { openThreshold: Math.min(95, Math.max(5, Math.round((cfg && cfg.openThreshold) || 40))), wateringMinutes: Math.min(30, Math.max(1, Math.round((cfg && cfg.wateringMinutes) || 3))), cropId: cropId };
+  return { openThreshold: Math.min(95, Math.max(5, Math.round((cfg && cfg.openThreshold) || 40))), wateringMinutes: Math.min(30, Math.max(1, Math.round((cfg && cfg.wateringMinutes) || 3))), cropId: cropId, valveOverride: (cfg && cfg.valveOverride) || null };
+}
+
+// ── Manual valve override (temporary) ──
+function updateManualUI() {
+  var el = document.getElementById('manual-sub');
+  if (!el) return;
+  var o = currentConfig.valveOverride;
+  if (o && o.expiresAt > Date.now()) {
+    var secs = Math.max(0, Math.round((o.expiresAt - Date.now()) / 1000));
+    el.hidden = false;
+    el.textContent = 'Manual ' + o.action + ' เหลือ ' + Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0') + ' → กลับ auto เอง';
+  } else {
+    el.hidden = true;
+    el.textContent = '';
+  }
+}
+setInterval(updateManualUI, 1000);
+
+function sendValve(action) {
+  fetch('/api/valve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action }) })
+  .then(function(r) { return r.json().then(function(j) { return { status: r.status, body: j }; }); })
+  .then(function(res) {
+    if (res.status === 200 && res.body.ok) {
+      handleConfigUpdate(res.body.config);
+      showToast('Valve', action === 'auto' ? 'กลับโหมด auto แล้ว' : 'สั่ง ' + action + ' แล้ว (' + currentConfig.wateringMinutes + ' นาที)');
+    } else {
+      showToast('Error', (res.body && res.body.error) || 'สั่งวาล์วไม่สำเร็จ');
+    }
+  })
+  .catch(function() { showToast('Error', 'สั่งวาล์วไม่สำเร็จ'); });
 }
 
 function loadConfig() {
@@ -612,6 +643,7 @@ function handleConfigUpdate(cfg) {
   var c = clampConfig(cfg);
   var changed = c.wateringMinutes !== currentConfig.wateringMinutes;
   currentConfig = c; pendingConfig = Object.assign({}, c);
+  updateManualUI();
   populateCropSelect(c.cropId); updateCropHint(findCropProfile(c.cropId));
   document.getElementById('cfg-threshold').value = c.openThreshold;
   document.getElementById('cfg-threshold-val').textContent = c.openThreshold;
@@ -683,9 +715,36 @@ document.querySelectorAll('.chart-btn').forEach(function(btn) {
 
 // Buttons
 document.getElementById('save-config-btn').addEventListener('click', function() { if (pendingConfig) saveConfig(pendingConfig); });
+document.getElementById('manual-open-btn').addEventListener('click', function() { sendValve('open'); });
+document.getElementById('manual-stop-btn').addEventListener('click', function() { sendValve('auto'); });
+
+function getResetToken() {
+  var t = localStorage.getItem('agriflow-reset-token') || '';
+  if (!t) {
+    t = prompt('Reset token (ตั้งใน Render env RESET_TOKEN, ว่างได้ถ้า dev):', '') || '';
+    if (t) localStorage.setItem('agriflow-reset-token', t);
+  }
+  return t;
+}
 document.getElementById('reset-wifi-btn').addEventListener('click', function() {
-  if (!confirm('Reset WiFi? ESP32 will reboot.')) return;
-  fetch('/api/reset-wifi', { method: 'POST' }).then(function(r) { return r.json(); }).then(function(res) { if (res.ok) showToast('WiFi Reset', 'ESP32 rebooting...'); }).catch(function() { showToast('Error', 'Failed'); });
+  if (!confirm('Reset WiFi? ESP32 จะ reboot แล้วเปิด AP Agriflow-Setup')) return;
+  var token = getResetToken();
+  showToast('WiFi Reset', 'สั่งรีเซ็ตแล้ว รอ ESP ออฟไลน์...');
+  fetch('/api/reset-wifi', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-reset-token': token }, body: JSON.stringify({ token: token }) })
+  .then(function(r) { return r.json().then(function(j) { return { status: r.status, body: j }; }); })
+  .then(function(res) {
+    if (res.status === 403) { localStorage.removeItem('agriflow-reset-token'); showToast('Error', 'Token ผิด ลองใหม่'); return; }
+    if (res.body.ok) {
+      showToast('WiFi Reset', 'ESP32 จะ reboot ใน ~5 วิ');
+      var t0 = Date.now();
+      var checker = setInterval(function() {
+        if (!lastReadingTime || Date.now() - lastReadingTime > 15000 || Date.now() - t0 > 60000) {
+          clearInterval(checker);
+          showToast('WiFi Reset', 'ต่อ WiFi Agriflow-Setup แล้วเปิด 192.168.4.1');
+        }
+      }, 3000);
+    } else { showToast('Error', 'สั่งรีเซ็ตไม่สำเร็จ'); }
+  }).catch(function() { showToast('Error', 'สั่งรีเซ็ตไม่สำเร็จ'); });
 });
 
 // Guide

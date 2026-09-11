@@ -19,17 +19,72 @@ const int wetValue = 800;
 int openThreshold = 40;
 int wateringMinutes = 3;
 
-// ==================== Servo ====================
+// ==================== Servo (smooth, anti-jerk) ====================
+// Tune these to your valve: if 90 hits the hard stop, lower to ~70.
+const int VALVE_CLOSED_ANGLE = 0;
+const int VALVE_OPEN_ANGLE = 70;
+const int SERVO_MIN_US = 500;
+const int SERVO_MAX_US = 2400;
+const int SERVO_STEP_DEG = 2;      // deg per step
+const int SERVO_STEP_MS = 20;      // ms per step → 0→70 takes ~0.7s
+const unsigned long REOPEN_COOLDOWN_MS = 5UL * 60UL * 1000UL; // no auto re-open within 5 min
+
 Servo valveServo;
 bool valveOpen = false;
 unsigned long valveStartTime = 0;
+int currentAngle = VALVE_CLOSED_ANGLE;
+bool servoAttached = false;
+unsigned long lastValveCloseTime = 0;
+
+// Manual override from dashboard (temporary, local timeout)
+unsigned long manualUntil = 0;
+bool manualOpen = false;
+bool manualActive() { return manualUntil != 0 && millis() < manualUntil; }
+
+void servoEnsureAttached() {
+  if (!servoAttached) {
+    valveServo.attach(servoPin, SERVO_MIN_US, SERVO_MAX_US);
+    servoAttached = true;
+    delay(50);
+  }
+}
+void servoRelax() {
+  delay(300); // let horn settle before cutting PWM hum
+  valveServo.detach();
+  servoAttached = false;
+}
+// Gradual sweep instead of instant write() → no jerk/current spike
+void moveServoSlow(int target) {
+  target = constrain(target, 0, 180);
+  servoEnsureAttached();
+  int step = (target > currentAngle) ? SERVO_STEP_DEG : -SERVO_STEP_DEG;
+  while (currentAngle != target) {
+    currentAngle += step;
+    if ((step > 0 && currentAngle > target) || (step < 0 && currentAngle < target))
+      currentAngle = target;
+    valveServo.write(currentAngle);
+    delay(SERVO_STEP_MS);
+  }
+}
+void openValve() {
+  moveServoSlow(VALVE_OPEN_ANGLE);
+  servoRelax();
+  valveOpen = true;
+  valveStartTime = millis();
+}
+void closeValve() {
+  moveServoSlow(VALVE_CLOSED_ANGLE);
+  servoRelax();
+  valveOpen = false;
+  lastValveCloseTime = millis();
+}
 
 // ==================== Reset Button ====================
 unsigned long resetPressedSince = 0;
 
 // ==================== Send Timer ====================
 unsigned long lastSendTime = 0;
-const unsigned long SEND_INTERVAL = 5000; // 10 seconds
+const unsigned long SEND_INTERVAL = 5000; // 5 seconds
 
 // ==================== WiFi Connect ====================
 void connectWiFi() {
@@ -84,10 +139,33 @@ void parseConfig(String response) {
     int end = response.indexOf(',', start);
     if (end < 0) end = response.indexOf('}', start);
     int val = response.substring(start, end).toInt();
-    if (val >= 1 && val <= 60 && val != wateringMinutes) {
+    if (val >= 1 && val <= 30 && val != wateringMinutes) {
       wateringMinutes = val;
       Serial.print("[CONFIG] wateringMinutes -> ");
       Serial.println(wateringMinutes);
+    }
+  }
+
+  // Manual valve override from dashboard (temporary)
+  idx = response.indexOf("\"valveOverride\":");
+  if (idx >= 0) {
+    if (response.indexOf("\"valveOverride\":null", idx) >= 0 && response.indexOf("\"valveOverride\":null", idx) == idx) {
+      if (manualUntil != 0) {
+        Serial.println("[VALVE] Manual override cleared → back to AUTO");
+        manualUntil = 0;
+        if (valveOpen) lastValveCloseTime = millis(); // don't auto re-open instantly
+      }
+    } else {
+      bool wantOpen = response.indexOf("\"action\":\"open\"", idx) >= 0 &&
+                      response.indexOf("\"action\":\"open\"", idx) < idx + 120;
+      bool wantClose = response.indexOf("\"action\":\"close\"", idx) >= 0 &&
+                       response.indexOf("\"action\":\"close\"", idx) < idx + 120;
+      if ((wantOpen || wantClose) && !manualActive()) {
+        manualOpen = wantOpen;
+        manualUntil = millis() + (unsigned long)wateringMinutes * 60000UL;
+        Serial.print("[VALVE] Manual override -> ");
+        Serial.println(manualOpen ? "OPEN" : "CLOSE");
+      }
     }
   }
 
@@ -107,8 +185,11 @@ void setup() {
   Serial.begin(115200);
   delay(300);
 
-  valveServo.attach(servoPin);
-  valveServo.write(0);
+  valveServo.attach(servoPin, SERVO_MIN_US, SERVO_MAX_US);
+  servoAttached = true;
+  valveServo.write(currentAngle);
+  delay(500);
+  servoRelax();
 
   // Reset button is on the BOOT pin.
   pinMode(CP_RESET_PIN, INPUT_PULLUP);
@@ -158,20 +239,38 @@ void loop() {
   moisturePercent = constrain(moisturePercent, 0, 100);
 
   // ---------- Valve Control ----------
-  // Open: moisture drops below threshold & valve is closed
-  if (!valveOpen && moisturePercent < openThreshold) {
-    Serial.println("Soil Dry -> Open Valve");
-    valveServo.write(90);
-    valveOpen = true;
-    valveStartTime = millis();
-  }
+  if (manualActive()) {
+    // Dashboard override wins; auto logic paused until it expires
+    if (manualOpen && !valveOpen) {
+      Serial.println("Manual -> Open Valve");
+      openValve();
+    } else if (!manualOpen && valveOpen) {
+      Serial.println("Manual -> Close Valve");
+      closeValve();
+    } else if (valveOpen && manualOpen &&
+               millis() - valveStartTime >= (unsigned long)wateringMinutes * 60000UL) {
+      Serial.println("Manual time up -> Close Valve");
+      closeValve();
+      manualUntil = 0;
+    }
+    if (!manualActive() && valveOpen) lastValveCloseTime = millis();
+  } else {
+    // Auto: moisture drops below threshold & valve closed & cooldown passed
+    bool cooldownOk = (lastValveCloseTime == 0) ||
+                      (millis() - lastValveCloseTime >= REOPEN_COOLDOWN_MS);
+    if (!valveOpen && moisturePercent < openThreshold && cooldownOk) {
+      Serial.println("Soil Dry -> Open Valve");
+      openValve();
+    } else if (!valveOpen && moisturePercent < openThreshold && !cooldownOk) {
+      Serial.println("Soil Dry but in cooldown -> wait");
+    }
 
-  // Close: timer expired
-  if (valveOpen) {
-    if (millis() - valveStartTime >= (unsigned long)wateringMinutes * 60000UL) {
-      Serial.println("Watering Complete -> Close Valve");
-      valveServo.write(0);
-      valveOpen = false;
+    // Close: timer expired
+    if (valveOpen) {
+      if (millis() - valveStartTime >= (unsigned long)wateringMinutes * 60000UL) {
+        Serial.println("Watering Complete -> Close Valve");
+        closeValve();
+      }
     }
   }
 
