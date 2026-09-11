@@ -59,15 +59,21 @@ function toMessages(text) {
   return [{ type: 'text', text: String(text).slice(0, 4500) }];
 }
 
+function asMessages(msg) {
+  if (Array.isArray(msg)) return msg;
+  if (typeof msg === 'string') return toMessages(msg);
+  return [msg]; // single flex/text object
+}
+
 async function sendPush(to, text) {
-  return lineFetch(LINE_PUSH_URL, { to, messages: toMessages(text) });
+  return lineFetch(LINE_PUSH_URL, { to, messages: asMessages(text) });
 }
 
 // Multicast: max 500 recipients/call — chunk automatically
 async function sendMulticast(toList, text) {
   const list = [...new Set((toList || []).filter(Boolean))];
   if (!list.length) return { sent: 0 };
-  const messages = toMessages(text);
+  const messages = asMessages(text);
   let sent = 0;
   for (let i = 0; i < list.length; i += 500) {
     const chunk = list.slice(i, i + 500);
@@ -79,7 +85,115 @@ async function sendMulticast(toList, text) {
 
 async function sendReply(replyToken, text) {
   if (!replyToken) return false;
-  return lineFetch(LINE_REPLY_URL, { replyToken, messages: toMessages(text) });
+  return lineFetch(LINE_REPLY_URL, { replyToken, messages: asMessages(text) });
+}
+
+// ── Flex UI builders ─────────────────────────
+// row: label left, value right. btn: footer button sending text back.
+function flexRow(label, value, valueColor) {
+  return {
+    type: 'box', layout: 'baseline', spacing: 'sm',
+    contents: [
+      { type: 'text', text: String(label), size: 'sm', color: '#8b9bb4', flex: 0 },
+      { type: 'text', text: String(value), size: 'sm', color: valueColor || '#1a1a1a', weight: 'bold', align: 'end', wrap: true },
+    ],
+  };
+}
+
+function flexBtn(label, text, style) {
+  return {
+    type: 'button', style: style || 'link', height: 'sm',
+    action: { type: 'message', label: String(label).slice(0, 20), text },
+  };
+}
+
+// Alert card: accent header + big moisture + detail rows + action buttons
+// buttons: [{label, text, style}] (max ~3)
+function flexAlert(o) {
+  const body = [
+    {
+      type: 'text', text: o.moisture != null ? o.moisture + '%' : '—',
+      size: 'xxl', weight: 'bold', color: o.levelColor || '#22c55e', align: 'center',
+    },
+  ];
+  if (o.level) body.push({ type: 'text', text: o.level, size: 'sm', color: '#8b9bb4', align: 'center', margin: 'xs' });
+  body.push({ type: 'separator', margin: 'md' });
+  const rows = [
+    flexRow('อุปกรณ์', o.device || '-'),
+    flexRow('วาล์ว', o.valve === 'OPEN' ? '● เปิด' : '○ ปิด', o.valve === 'OPEN' ? '#22c55e' : '#8b9bb4'),
+    flexRow('เวลา', o.time || '-'),
+  ];
+  if (o.extra) rows.push(flexRow(o.extra[0], o.extra[1]));
+  body.push({ type: 'box', layout: 'vertical', margin: 'md', spacing: 'sm', contents: rows });
+  const contents = {
+    type: 'bubble',
+    header: {
+      type: 'box', layout: 'vertical', paddingAll: '12px', backgroundColor: o.accent || '#22c55e',
+      contents: [{ type: 'text', text: o.title, weight: 'bold', size: 'md', color: '#ffffff' }],
+    },
+    body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px', contents: body },
+  };
+  if (o.buttons && o.buttons.length) {
+    contents.footer = {
+      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
+      contents: o.buttons.map(b => flexBtn(b.label, b.text, b.style)),
+    };
+  }
+  return { type: 'flex', altText: o.alt || o.title, contents };
+}
+
+// Status card: full snapshot + config + control buttons
+function flexStatus(o) {
+  return flexAlert({
+    accent: '#0ea5e9',
+    title: '📊 สถานะ Agriflow',
+    alt: `สถานะ: ความชื้น ${o.moisture}% วาล์ว ${o.valve}`,
+    moisture: o.moisture, level: o.level, levelColor: o.levelColor,
+    valve: o.valve, device: o.device, time: o.time,
+    extra: ['เกณฑ์รดน้ำ', `<${o.threshold}% · ${o.minutes} นาที`],
+    buttons: [
+      { label: '🚰 เปิดวาล์ว', text: 'เปิดวาล์ว' },
+      { label: '🛑 หยุด · Auto', text: 'หยุด' },
+    ],
+  });
+}
+
+// Menu card: what the bot can do
+function flexMenu() {
+  return {
+    type: 'flex',
+    altText: 'เมนู Agriflow: สถานะ เปิดวาล์ว หยุด ตั้งเกณฑ์',
+    contents: {
+      type: 'bubble',
+      header: {
+        type: 'box', layout: 'vertical', paddingAll: '12px', backgroundColor: '#16a34a',
+        contents: [{ type: 'text', text: '🌱 เมนู Agriflow', weight: 'bold', size: 'md', color: '#ffffff' }],
+      },
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px',
+        contents: [
+          { type: 'text', text: 'แตะปุ่ม หรือพิมพ์สั่งได้เลย', size: 'sm', color: '#8b9bb4', wrap: true },
+          { type: 'separator', margin: 'md' },
+          {
+            type: 'box', layout: 'vertical', margin: 'md', spacing: 'sm',
+            contents: [
+              flexRow('เกณฑ์', 'เช่น “เกณฑ์ 45”'),
+              flexRow('เวลา', 'เช่น “รด 5 นาที”'),
+              flexRow('เลิกรับ', 'พิมพ์ “ยกเลิก”'),
+            ],
+          },
+        ],
+      },
+      footer: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
+        contents: [
+          flexBtn('📊 ดูสถานะ', 'สถานะ', 'primary'),
+          flexBtn('🚰 เปิดวาล์วตอนนี้', 'เปิดวาล์ว'),
+          flexBtn('🛑 หยุด · กลับ Auto', 'หยุด'),
+        ],
+      },
+    },
+  };
 }
 
 async function getProfile(userId) {
@@ -137,4 +251,7 @@ module.exports = {
   verifySignature,
   shouldNotify,
   peekLastSent,
+  flexAlert,
+  flexStatus,
+  flexMenu,
 };

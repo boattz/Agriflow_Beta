@@ -290,16 +290,24 @@ async function getActiveSubscriberIds() {
   }
 }
 
-async function multicastToAll(text) {
+async function multicastToAll(msg, logLabel) {
   if (!line.isLineEnabled()) return;
   try {
     const ids = await getActiveSubscriberIds();
     if (!ids.length) return;
-    const r = await line.sendMulticast(ids, text);
-    console.log(`[LINE] sent → ${r.sent} subs: ${String(text).slice(0, 80)}`);
+    const r = await line.sendMulticast(ids, msg);
+    const label = logLabel || (typeof msg === 'string' ? msg : (msg.altText || msg.type || 'flex'));
+    console.log(`[LINE] sent → ${r.sent} subs: ${String(label).slice(0, 80)}`);
   } catch (err) {
     console.error('[LINE] send failed:', err.message);
   }
+}
+
+// Contextual buttons under every alert card
+function alertButtons(valve) {
+  return valve === 'OPEN'
+    ? [{ label: '🛑 หยุด', text: 'หยุด' }, { label: '📊 สถานะ', text: 'สถานะ' }]
+    : [{ label: '🚰 เปิดวาล์ว', text: 'เปิดวาล์ว' }, { label: '📊 สถานะ', text: 'สถานะ' }];
 }
 
 function fmtTime(d) {
@@ -317,7 +325,11 @@ function handleSensorNotify(reading) {
   // Device back online → recovery notice (only if we previously flagged offline)
   if (offlineNotifiedByDevice[id]) {
     offlineNotifiedByDevice[id] = false;
-    multicastToAll(`✅ ${id} กลับมาออนไลน์แล้ว (${fmtTime(reading.timestamp)})`);
+    multicastToAll(line.flexAlert({
+      accent: '#22c55e', title: `✅ ${id} กลับมาออนไลน์แล้ว`,
+      alt: `${id} กลับมาออนไลน์แล้ว`, device: id, time: fmtTime(reading.timestamp),
+      buttons: alertButtons(valve),
+    }), 'recovery:' + id);
   }
 
   const valve = String(reading.valve || 'CLOSE');
@@ -342,9 +354,15 @@ function handleSensorNotify(reading) {
   if (valveChanged) {
     lastValveByDevice[id] = valve;
     if (line.shouldNotify(keyBase + ':valve', 0)) {
-      multicastToAll(valve === 'OPEN'
-        ? `🚰 วาล์วเปิดแล้ว — ${id} ความชื้น ${moisture}% (${levelLabel || '-'}) ${fmtTime(reading.timestamp)}`
-        : `🛑 วาล์วปิดแล้ว — ${id} ความชื้น ${moisture}% (${levelLabel || '-'}) ${fmtTime(reading.timestamp)}`);
+      const opened = valve === 'OPEN';
+      multicastToAll(line.flexAlert({
+        accent: opened ? '#22c55e' : '#64748b',
+        title: opened ? '🚰 วาล์วเปิดแล้ว' : '🛑 วาล์วปิดแล้ว',
+        alt: `วาล์ว${opened ? 'เปิด' : 'ปิด'}แล้ว ความชื้น ${moisture}%`,
+        moisture, level: levelLabel, levelColor: (reading.level && reading.level.color) || undefined,
+        valve, device: id, time: fmtTime(reading.timestamp),
+        buttons: alertButtons(valve),
+      }), 'valve:' + id + ':' + valve);
     }
   }
 
@@ -355,8 +373,21 @@ function handleSensorNotify(reading) {
       if (levelLabel) lastLevelByDevice[id] = levelLabel;
       delete pendingLevelByDevice[id];
       multicastToAll(isVeryDry
-        ? `🚨 ดินแห้งวิกฤต ${moisture}% (${levelLabel}) — ${id} ควรตรวจสอบระบบน้ำ ${fmtTime(reading.timestamp)}`
-        : `💧 ความชื้นเปลี่ยน: ${prevLevel} → ${levelLabel} (${moisture}%) — ${id} ${fmtTime(reading.timestamp)}`);
+        ? line.flexAlert({
+            accent: '#ff4757', title: '🚨 ดินแห้งวิกฤต',
+            alt: `ดินแห้งวิกฤต ${moisture}% ควรตรวจสอบระบบน้ำ`,
+            moisture, level: levelLabel, levelColor: (reading.level && reading.level.color) || undefined,
+            valve, device: id, time: fmtTime(reading.timestamp),
+            extra: ['คำแนะนำ', 'ตรวจสอบระบบน้ำ'],
+            buttons: [{ label: '🚰 เปิดวาล์วตอนนี้', text: 'เปิดวาล์ว', style: 'primary' }, { label: '📊 สถานะ', text: 'สถานะ' }],
+          })
+        : line.flexAlert({
+            accent: '#38bdf8', title: `💧 ความชื้นเปลี่ยน: ${prevLevel} → ${levelLabel}`,
+            alt: `ความชื้นเปลี่ยนเป็น ${levelLabel} ${moisture}%`,
+            moisture, level: levelLabel, levelColor: (reading.level && reading.level.color) || undefined,
+            valve, device: id, time: fmtTime(reading.timestamp),
+            buttons: alertButtons(valve),
+          }), 'level:' + id + ':' + levelLabel);
     } else if (levelLabel) {
       // flapping inside cooldown → remember latest, summarize later
       pendingLevelByDevice[id] = { label: levelLabel, moisture, ts: reading.timestamp };
@@ -373,7 +404,12 @@ async function flushPendingLevels() {
     if (line.shouldNotify('dev:' + id + ':level', minIntervalMs)) {
       lastLevelByDevice[id] = p.label;
       delete pendingLevelByDevice[id];
-      multicastToAll(`💧 ความชื้น (สรุป): ${p.label} (${p.moisture}%) — ${id} ${fmtTime(p.ts)}`);
+      multicastToAll(line.flexAlert({
+        accent: '#38bdf8', title: `💧 ความชื้น (สรุป): ${p.label}`,
+        alt: `สรุปความชื้น ${p.label} ${p.moisture}%`,
+        moisture: p.moisture, level: p.label, device: id, time: fmtTime(p.ts),
+        buttons: [{ label: '📊 สถานะ', text: 'สถานะ' }],
+      }), 'level-summary:' + id);
     }
   }
 }
@@ -386,7 +422,13 @@ async function checkOfflineDevices() {
     if (offlineNotifiedByDevice[id]) continue;
     if (now - last > c.offlineMin * 60000) {
       offlineNotifiedByDevice[id] = true;
-      multicastToAll(`⚠️ ${id} ไม่ออนไลน์เกิน ${c.offlineMin} นาที (เห็นล่าสุด ${fmtTime(last)})`);
+      multicastToAll(line.flexAlert({
+        accent: '#f59e0b', title: `⚠️ ${id} ไม่ออนไลน์`,
+        alt: `${id} ไม่ออนไลน์เกิน ${c.offlineMin} นาที`,
+        device: id, time: fmtTime(Date.now()),
+        extra: ['เห็นล่าสุด', fmtTime(last)],
+        buttons: [{ label: '📊 เช็คสถานะ', text: 'สถานะ' }],
+      }), 'offline:' + id);
     }
   }
   flushPendingLevels().catch(() => {});
@@ -423,53 +465,18 @@ app.post('/api/line/webhook', async (req, res) => {
           }
         } catch (e) { console.error('[LINE] follow save failed:', e.message); }
         if (c.enabled) {
-          await line.sendReply(ev.replyToken,
-            `ยินดีต้อนรับ 🌱 Agriflow\nพิมพ์รหัสลงทะเบียนเพื่อรับแจ้งเตือน\n(ขอจากผู้ดูแลระบบ)`).catch(() => {});
+          await line.sendReply(ev.replyToken, [
+            { type: 'text', text: 'ยินดีต้อนรับ 🌱 Agriflow\nพิมพ์รหัสลงทะเบียนเพื่อรับแจ้งเตือน\n(ขอจากผู้ดูแลระบบ)' },
+            line.flexMenu(),
+          ]).catch(() => {});
         }
       } else if (ev.type === 'unfollow' || ev.type === 'leave') {
         if (dbReady) {
           await pool.query(`UPDATE line_subscribers SET active = FALSE WHERE line_user_id = $1`, [userId]).catch(() => {});
         }
       } else if (ev.type === 'message' && ev.message && ev.message.type === 'text') {
-        const text = String(ev.message.text || '').trim();
         if (!c.enabled) continue;
-        const lower = text.toLowerCase();
-        if (lower === 'ยกเลิก' || lower === 'หยุด' || lower === 'unsubscribe' || lower === 'stop') {
-          if (dbReady) await pool.query(`UPDATE line_subscribers SET active = FALSE WHERE line_user_id = $1`, [userId]).catch(() => {});
-          await line.sendReply(ev.replyToken, `ยกเลิกรับแจ้งเตือนแล้ว 🔕\nพิมพ์รหัสลงทะเบียนเพื่อสมัครใหม่`).catch(() => {});
-        } else if (lower === 'สถานะ' || lower === 'status') {
-          let msg = 'ยังไม่มีข้อมูลเซ็นเซอร์';
-          if (dbReady) {
-            try {
-              const r = await pool.query(`SELECT device, moisture, valve, created_at FROM readings ORDER BY created_at DESC LIMIT 1`);
-              if (r.rows.length) {
-                const x = r.rows[0];
-                msg = `📊 ${x.device}: ${x.moisture}% วาล์ว ${x.valve} (${fmtTime(x.created_at)})`;
-              }
-            } catch {}
-          }
-          await line.sendReply(ev.replyToken, msg).catch(() => {});
-        } else if (c.regCode && text === c.regCode) {
-          try {
-            let name = null;
-            if (line.hasLineConfig()) {
-              const prof = await line.getProfile(userId).catch(() => null);
-              if (prof && prof.displayName) name = String(prof.displayName).slice(0, 100);
-            }
-            if (dbReady) {
-              await pool.query(
-                `INSERT INTO line_subscribers (line_user_id, display_name, active, subscribed_at)
-                 VALUES ($1, $2, TRUE, NOW())
-                 ON CONFLICT (line_user_id) DO UPDATE SET active = TRUE, subscribed_at = NOW(),
-                   display_name = COALESCE(EXCLUDED.display_name, line_subscribers.display_name)`,
-                [userId, name]
-              );
-            }
-          } catch (e) { console.error('[LINE] subscribe failed:', e.message); }
-          await line.sendReply(ev.replyToken, `สมัครสำเร็จ ✅\nจะแจ้งเตือนเมื่อวาล์ว/ระดับดินเปลี่ยน`).catch(() => {});
-        } else {
-          await line.sendReply(ev.replyToken, `พิมพ์รหัสลงทะเบียนเพื่อสมัครรับแจ้งเตือน 🌱\nหรือพิมพ์ "สถานะ" เพื่อดูค่าล่าสุด`).catch(() => {});
-        }
+        await handleLineMessage(userId, ev.replyToken, ev.message.text);
       }
     }
     res.json({ ok: true });
@@ -494,11 +501,15 @@ app.get('/api/line/subscribers', async (req, res) => {
 app.post('/api/line/test', rateLimit(5, 60000), async (req, res) => {
   if (!checkResetAuth(req)) return res.status(403).json({ error: 'Invalid reset token' });
   if (!line.isLineEnabled()) return res.status(400).json({ error: 'LINE not enabled/configured' });
-  const { to, text } = req.body || {};
+  const { to, text, menu } = req.body || {};
   try {
     if (to) {
       await line.sendPush(String(to), String(text || 'ทดสอบ Agriflow ✅'));
       return res.json({ ok: true, mode: 'push', to });
+    }
+    if (menu) {
+      await multicastToAll(line.flexMenu(), 'menu-card');
+      return res.json({ ok: true, mode: 'multicast-menu' });
     }
     await multicastToAll(String(text || 'ทดสอบ Agriflow ✅ ระบบแจ้งเตือนพร้อมใช้งาน'));
     res.json({ ok: true, mode: 'multicast' });
@@ -562,15 +573,15 @@ app.post('/api/reset-wifi', rateLimit(5, 60000), async (req, res) => {
 
 // ── POST /api/valve (manual temporary override) ─
 // Body: { action: 'open'|'close'|'auto' }. open/close lasts wateringMinutes, auto clears.
-app.post('/api/valve', rateLimit(30, 60000), async (req, res) => {
-  const { action } = req.body || {};
+// Shared with LINE remote control below.
+function applyValveAction(action) {
   if (action === 'auto' || action === 'clear') {
     valveOverride = null;
     broadcast({ type: 'config', data: configWithOverride() });
-    return res.json({ ok: true, config: configWithOverride() });
+    return { ok: true, config: configWithOverride() };
   }
   if (action !== 'open' && action !== 'close') {
-    return res.status(400).json({ error: "action must be 'open', 'close' or 'auto'" });
+    return { error: "action must be 'open', 'close' or 'auto'" };
   }
   valveOverride = {
     action,
@@ -578,8 +589,176 @@ app.post('/api/valve', rateLimit(30, 60000), async (req, res) => {
   };
   console.log(`[VALVE] Manual ${action} for ${config.wateringMinutes} min`);
   broadcast({ type: 'config', data: configWithOverride() });
-  res.json({ ok: true, config: configWithOverride() });
+  return { ok: true, config: configWithOverride() };
+}
+app.post('/api/valve', rateLimit(30, 60000), async (req, res) => {
+  const r = applyValveAction((req.body || {}).action);
+  if (r.error) return res.status(400).json({ error: r.error });
+  res.json(r);
 });
+
+// Shared with LINE remote control: threshold 5-95%, minutes 1-30 (mirrors /api/config)
+async function applyLineConfig({ threshold, minutes }) {
+  if (threshold !== undefined) config.openThreshold = Math.max(5, Math.min(95, Math.round(threshold)));
+  if (minutes !== undefined) config.wateringMinutes = Math.max(1, Math.min(30, Math.round(minutes)));
+  config.cropId = 'custom';
+  console.log(`[CONFIG] via LINE: Open <${config.openThreshold}% | Water ${config.wateringMinutes} min`);
+  await saveConfig();
+  broadcast({ type: 'config', data: configWithOverride() });
+  return configWithOverride();
+}
+
+// ── LINE remote control (same power as dashboard) ──
+const lineCmdCooldown = new Map(); // userId → last command ts (anti-spam)
+
+async function isLineSubscribed(userId) {
+  if (!dbReady) return false;
+  try {
+    const r = await pool.query('SELECT active FROM line_subscribers WHERE line_user_id = $1', [userId]);
+    return r.rows.length > 0 && !!r.rows[0].active;
+  } catch { return false; }
+}
+
+async function fetchLineName(userId) {
+  try {
+    if (!line.hasLineConfig()) return null;
+    const prof = await line.getProfile(userId).catch(() => null);
+    if (prof && prof.displayName) return String(prof.displayName).slice(0, 100);
+  } catch {}
+  return null;
+}
+
+async function latestLineReading() {
+  if (!dbReady) return null;
+  try {
+    const r = await pool.query(
+      `SELECT device, moisture, valve, level_label, level_color, created_at
+       FROM readings ORDER BY created_at DESC LIMIT 1`);
+    return r.rows[0] || null;
+  } catch { return null; }
+}
+
+async function subscribeLineUser(userId) {
+  const name = await fetchLineName(userId);
+  if (dbReady) {
+    await pool.query(
+      `INSERT INTO line_subscribers (line_user_id, display_name, active, subscribed_at)
+       VALUES ($1, $2, TRUE, NOW())
+       ON CONFLICT (line_user_id) DO UPDATE SET active = TRUE, subscribed_at = NOW(),
+         display_name = COALESCE(EXCLUDED.display_name, line_subscribers.display_name)`,
+      [userId, name]
+    ).catch(e => console.error('[LINE] subscribe failed:', e.message));
+  }
+}
+
+function replyCmd(replyToken, msg) {
+  if (!replyToken) return Promise.resolve(false);
+  return line.sendReply(replyToken, msg).catch(() => false);
+}
+
+async function handleLineMessage(userId, replyToken, rawText) {
+  const c = line.cfg();
+  const text = String(rawText || '').trim();
+  if (!text) return;
+
+  // ① Registration code — works even when not subscribed yet
+  if (c.regCode && text === c.regCode) {
+    await subscribeLineUser(userId);
+    await replyCmd(replyToken, [
+      { type: 'text', text: 'สมัครสำเร็จ ✅\nแตะปุ่มด้านล่างสั่งงานได้เลย' },
+      line.flexMenu(),
+    ]);
+    return;
+  }
+
+  // Must be an active subscriber for everything else
+  if (!await isLineSubscribed(userId)) {
+    await replyCmd(replyToken, [
+      { type: 'text', text: 'ต้องสมัครก่อนนะ 🌱\nพิมพ์รหัสลงทะเบียนที่ได้จากผู้ดูแลระบบ' },
+      line.flexMenu(),
+    ]);
+    return;
+  }
+
+  // Anti-spam: 1 command / 2 sec per user
+  const now = Date.now();
+  if (now - (lineCmdCooldown.get(userId) || 0) < 2000) return;
+  lineCmdCooldown.set(userId, now);
+
+  const lower = text.toLowerCase();
+
+  // ② Unsubscribe (note: หยุด = valve stop, NOT unsubscribe)
+  if (['ยกเลิก', 'เลิกรับ', 'เลิกติดตาม', 'unsubscribe'].includes(lower)) {
+    if (dbReady) await pool.query(`UPDATE line_subscribers SET active = FALSE WHERE line_user_id = $1`, [userId]).catch(() => {});
+    await replyCmd(replyToken, 'เลิกรับแจ้งเตือนแล้ว 🔕\nพิมพ์รหัสลงทะเบียนเพื่อสมัครใหม่');
+    return;
+  }
+
+  // ③ Menu / help
+  if (['เมนู', 'menu', 'help', 'ช่วยเหลือ', 'คำสั่ง', 'ช่วย'].includes(lower)) {
+    await replyCmd(replyToken, line.flexMenu());
+    return;
+  }
+
+  // ④ Status snapshot (flex card)
+  if (['สถานะ', 'status', 'ดูสถานะ'].includes(lower)) {
+    const x = await latestLineReading();
+    if (!x) { await replyCmd(replyToken, 'ยังไม่มีข้อมูลเซ็นเซอร์ 📡\nรอ ESP32 ส่งข้อมูลรอบแรก'); return; }
+    await replyCmd(replyToken, line.flexStatus({
+      device: x.device, moisture: x.moisture != null ? String(x.moisture) : null,
+      level: x.level_label, levelColor: x.level_color, valve: x.valve,
+      threshold: config.openThreshold, minutes: config.wateringMinutes,
+      time: fmtTime(x.created_at),
+    }));
+    return;
+  }
+
+  // ⑤ Manual valve open (lasts wateringMinutes, like dashboard button)
+  if (lower === 'เปิดวาล์ว' || lower === 'เปิดวาล์วตอนนี้' || lower === 'เปิดน้ำ' || lower === 'เปิด') {
+    applyValveAction('open');
+    await replyCmd(replyToken, `🚰 เปิดวาล์วแล้ว (ปิดเองใน ${config.wateringMinutes} นาที)\nสั่ง “หยุด” เพื่อหยุดก่อนเวลา`);
+    return;
+  }
+
+  // ⑥ Back to auto
+  if (['หยุด', 'หยุดวาล์ว', 'ปิดวาล์ว', 'ปิดน้ำ', 'auto'].includes(lower)) {
+    applyValveAction('auto');
+    await replyCmd(replyToken, '🛑 กลับโหมด Auto แล้ว\nวาล์วจะทำงานตามความชื้นดิน');
+    return;
+  }
+
+  // ⑦ Set threshold — e.g. เกณฑ์ 45 / threshold 45
+  let m = text.match(/(?:เกณฑ์|threshold)\s*(\d{1,2})/i);
+  if (m) {
+    const v = Math.max(5, Math.min(95, parseInt(m[1], 10)));
+    await applyLineConfig({ threshold: v });
+    await replyCmd(replyToken, `⚙️ ตั้งเกณฑ์เปิดวาล์ว <${v}% แล้ว\n(ESP32 รับค่าใหม่รอบส่งถัดไป)`);
+    return;
+  }
+  if (lower === 'เกณฑ์' || lower === 'threshold') {
+    await replyCmd(replyToken, `เกณฑ์ตอนนี้ <${config.openThreshold}%\nพิมพ์เช่น “เกณฑ์ 45” เพื่อเปลี่ยน (5–95)`);
+    return;
+  }
+
+  // ⑧ Set watering minutes — e.g. รด 5 นาที / เวลา 5 / 5 นาที
+  m = text.match(/(?:รด|เวลา|นาที|min|duration)\s*(\d{1,2})/i) || text.match(/^(\d{1,2})\s*(?:นาที|min)$/i);
+  if (m) {
+    const v = Math.max(1, Math.min(30, parseInt(m[1], 10)));
+    await applyLineConfig({ minutes: v });
+    await replyCmd(replyToken, `⏱️ ตั้งเวลารดน้ำ ${v} นาทีแล้ว`);
+    return;
+  }
+  if (['เวลา', 'นาที', 'รดน้ำ'].includes(lower)) {
+    await replyCmd(replyToken, `เวลารดตอนนี้ ${config.wateringMinutes} นาที\nพิมพ์เช่น “รด 5 นาที” เพื่อเปลี่ยน (1–30)`);
+    return;
+  }
+
+  // ⑨ Fallback → hint + menu
+  await replyCmd(replyToken, [
+    { type: 'text', text: 'ไม่เข้าใจคำสั่ง 🤔\nแตะปุ่มด้านล่างได้เลย' },
+    line.flexMenu(),
+  ]);
+}
 
 // ── POST /api/sensor ─────────────────────────
 app.post('/api/sensor', rateLimit(60, 60000), async (req, res) => {

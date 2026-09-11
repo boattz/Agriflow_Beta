@@ -297,13 +297,18 @@ void loop() {
                   (peakMoistureSinceClose >= openThreshold + REOPEN_RISE_PCT);
     bool fallbackOk = (lastValveCloseTime != 0) &&
                       (millis() - lastValveCloseTime >= REOPEN_FALLBACK_MS);
+    // Wait notices: print only on change (not every 100ms loop)
+    static int lastWaitMsg = 0; // 0=none, 1=cooldown, 2=rise
     if (!valveOpen && moisturePercent < openThreshold && cooldownOk && (roseOk || fallbackOk)) {
       Serial.println("Soil Dry -> Open Valve");
+      lastWaitMsg = 0;
       openValve();
     } else if (!valveOpen && moisturePercent < openThreshold && !cooldownOk) {
-      Serial.println("Soil Dry but in cooldown -> wait");
+      if (lastWaitMsg != 1) { Serial.println("Soil Dry but in cooldown -> wait"); lastWaitMsg = 1; }
     } else if (!valveOpen && moisturePercent < openThreshold) {
-      Serial.println("Soil Dry but waiting for moisture rise -> wait");
+      if (lastWaitMsg != 2) { Serial.println("Soil Dry but waiting for moisture rise -> wait"); lastWaitMsg = 2; }
+    } else {
+      lastWaitMsg = 0;
     }
 
     // Close: timer expired
@@ -315,18 +320,22 @@ void loop() {
     }
   }
 
-  // ---------- Serial Monitor ----------
-  Serial.print("Raw: ");        Serial.print(rawValue);
-  Serial.print(" | Moisture: ");Serial.print(moisturePercent); Serial.print("%");
-  Serial.print(" | Threshold: ");Serial.print(openThreshold); Serial.print("%");
-  Serial.print(" | Water: ");   Serial.print(wateringMinutes); Serial.print("min");
-  Serial.print(" | Valve: ");   Serial.print(valveOpen ? "OPEN" : "CLOSE");
+  // ---------- Serial Monitor (throttled: every 2s, not every loop) ----------
+  static unsigned long lastPrintTime = 0;
+  if (millis() - lastPrintTime >= 2000) {
+    lastPrintTime = millis();
+    Serial.print("Raw: ");        Serial.print(rawValue);
+    Serial.print(" | Moisture: ");Serial.print(moisturePercent); Serial.print("%");
+    Serial.print(" | Threshold: ");Serial.print(openThreshold); Serial.print("%");
+    Serial.print(" | Water: ");   Serial.print(wateringMinutes); Serial.print("min");
+    Serial.print(" | Valve: ");   Serial.print(valveOpen ? "OPEN" : "CLOSE");
 
-  if (valveOpen) {
-    unsigned long remain = ((unsigned long)wateringMinutes * 60000UL - (millis() - valveStartTime)) / 1000UL;
-    Serial.print(" | Remaining: "); Serial.print(remain); Serial.print("s");
+    if (valveOpen) {
+      unsigned long remain = ((unsigned long)wateringMinutes * 60000UL - (millis() - valveStartTime)) / 1000UL;
+      Serial.print(" | Remaining: "); Serial.print(remain); Serial.print("s");
+    }
+    Serial.println();
   }
-  Serial.println();
 
   // ---------- Send to Dashboard (every SEND_INTERVAL) ----------
   if (millis() - lastSendTime >= SEND_INTERVAL && WiFi.status() == WL_CONNECTED) {
