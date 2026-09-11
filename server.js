@@ -61,15 +61,21 @@ app.get('/api/health', (req, res) => {
 const STATIC_ALLOWED = ['.html', '.css', '.js', '.json', '.png', '.jpg', '.svg', '.ico'];
 const BLOCKED_FILES = ['.env', 'server.js', 'package.json', 'package-lock.json', 'Procfile', 'render.yaml'];
 
+// Block sensitive files BEFORE static (setHeaders can't stop the send and
+// would cause "headers already sent" errors on scanner hits like /server.js)
+app.use((req, res, next) => {
+  const base = path.basename(req.path);
+  const ext = path.extname(req.path);
+  if (BLOCKED_FILES.includes(base) || (ext && !STATIC_ALLOWED.includes(ext) && req.path !== '/')) {
+    return res.status(403).end();
+  }
+  next();
+});
 app.use(express.static(__dirname, {
   index: 'index.html',
   extensions: ['html'],
   setHeaders: (res, filePath) => {
     const ext = path.extname(filePath);
-    const base = path.basename(filePath);
-    if (!STATIC_ALLOWED.includes(ext) || BLOCKED_FILES.includes(base)) {
-      res.status(403).end();
-    }
     if (ext === '.html' || ext === '.js' || ext === '.css') {
       // no-cache (not immutable): dashboard must pick up new deploys immediately
       res.setHeader('Cache-Control', 'no-cache');

@@ -1,357 +1,164 @@
-# 🌱 Agriflow - Smart Soil Moisture Monitoring System
+# 🌱 Agriflow — ระบบรดน้ำอัจฉริยะด้วย ESP32
 
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Status](https://img.shields.io/badge/status-active-brightgreen)]()
+Agriflow วัดความชื้นดินด้วย ESP32 แล้วสั่ง servo เปิด/ปิดวาล์วน้ำเองตามเกณฑ์ที่ตั้งไว้
+ดูค่าทุกอย่างแบบเรียลไทม์ผ่านหน้าเว็บ Dashboard จากมือถือหรือคอมได้เลย
 
-Agriflow is an open-source IoT solution that helps home gardeners and small-scale farmers automatically monitor soil moisture and control watering systems. Monitor your plants from anywhere using a beautiful, mobile-friendly dashboard with real-time sensor data, watering controls, and moisture history tracking.
+## ระบบทำงานยังไง (อ่าน 30 วิ)
 
-## ✨ Features
+```
+เซนเซอร์ความชื้น → ESP32 ตัดสินใจ → servo เปิด/ปิดวาล์ว
+                        ↓ ส่งค่าทุก 5 วินาที (HTTPS)
+              Server (Node.js) เก็บลง PostgreSQL + ส่งขึ้นหน้าเว็บแบบเรียลไทม์
+                        ↓
+              หน้าเว็บ Dashboard: ดูค่า / ตั้งค่า / สั่งเปิดวาล์วเอง
+```
 
-- **Real-time Soil Moisture Monitoring**: Get instant updates from ESP32-based moisture sensors
-- **Smart Watering Control**: Set custom thresholds to automatically trigger watering
-- **Beautiful Dashboard**: Responsive, accessible web interface designed for outdoor use
-- **Mobile-First Design**: Use on phone, tablet, or desktop while tending your garden
-- **Moisture History**: Track soil moisture trends over time
-- **Configurable Watering Duration**: Set how long the valve stays open (in minutes)
-- **Status Indicators**: Clear visual feedback on valve state, moisture levels, and alerts
-- **WCAG AAA Accessible**: Readable in sunlight with large touch targets for easy interaction
-- **Secure**: HTTPS-ready, rate-limited API, secure data transmission
-- **Self-Hosted**: Deploy on Render, your own server, or local network
+ตรรกะหลักมี 2 โหมด:
 
-## 🎯 Who Is This For?
+| โหมด | ทำงานยังไง |
+|------|------------|
+| **Auto** (ปกติ) | ดินแห้งต่ำกว่า threshold → เปิดวาล์ว → ครบเวลาที่ตั้ง → ปิด → พัก 5 นาทีก่อนเปิดรอบใหม่ได้ |
+| **Manual** (กดปุ่ม) | กด "เปิดตอนนี้" วาล์วเปิดตามเวลาที่ตั้ง แล้วกลับ auto เอง กด "หยุด / Auto" คือยกเลิกทันที |
 
-- **Home Gardeners**: Keep potted plants, balcony gardens, and small beds healthy
-- **Small-Scale Farmers**: Monitor multiple garden areas with individual sensors
-- **Tech Enthusiasts**: Learn IoT, embedded systems, and full-stack web development
-- **Open-Source Contributors**: Fork, modify, and improve for your own use case
+---
 
-## 📋 Requirements
+## 1. ของที่ต้องมี
 
-### Hardware
-- **ESP32 Microcontroller** (e.g., ESP32-DEVKIT-V1)
-- **Capacitive Soil Moisture Sensor** (analog, 0-3.3V)
-- **Servo Motor** (for valve control, e.g., SG90)
-- **5V Power Supply** (for servo and ESP32)
-- **WiFi Network** (2.4 GHz)
+**ฮาร์ดแวร์**
+- ESP32 (เช่น ESP32-DEVKIT-V1)
+- เซนเซอร์วัดความชื้นดินแบบ capacitive (analog)
+- Servo หมุนวาล์ว (SG90 ตัวเล็กพอสำหรับวาล์วจิ๋ว บอลวาล์วจริงแนะนำ MG90S ขึ้นไป)
+- แหล่งจ่ายไฟ **5V 2A แยกสำหรับ servo โดยเฉพาะ** + ต่อ GND ร่วมกับ ESP32
+- คาปาซิเตอร์ 470–1000µF คร่อมขั้วไฟ servo (กันไฟตกตอน servo ออกตัว)
+- WiFi 2.4 GHz
 
-### Software
-- **Node.js** (v14 or higher)
-- **PostgreSQL** (v12 or higher, or Supabase for cloud)
-- **Arduino IDE** (for uploading firmware to ESP32)
-- **Modern Web Browser** (Chrome, Firefox, Safari, Edge)
+> ⚠️ ห้ามเอาไฟ servo จากขา 5V/3V3 บนบอร์ด ESP32 โดยตรง — ตอน servo ขยับพร้อม WiFi ส่งข้อมูล บอร์ดจะไฟตกแล้วรีบูตเอง ดูเหมือนระบบไม่เสถียรทั้งที่โค้ดปกติ
 
-## 🚀 Quick Start
+**ซอฟต์แวร์**
+- Node.js 14+ / Arduino IDE + บอร์ด ESP32 / PostgreSQL (หรือ Supabase)
 
-### Step 1: Set Up Hardware
+## 2. ต่อวงจร
 
-1. **Wire the ESP32**:
-   - Moisture Sensor → GPIO 34 (analog input)
-   - Servo Motor → GPIO 18 (PWM output)
-   - Power both components from 5V source
+| อุปกรณ์ | ต่อขา |
+|---------|-------|
+| เซนเซอร์ความชื้น | GPIO 34 |
+| Servo (สายสัญญาณ) | GPIO 18 |
+| Servo (ไฟ +/-) | 5V แยก / GND ร่วมกับ ESP32 |
+| ปุ่มรีเซ็ต WiFi | ปุ่ม BOOT บนบอร์ด (GPIO 0) กดค้าง ~3 วิ |
 
-2. **Calibrate Your Sensor**:
-   - Edit `moisture-sensor_code/ESP32_SmartSprinkler/ESP32_SmartSprinkler.ino`
-   - Update `dryValue` (when sensor is in dry soil) and `wetValue` (when in water)
-   - Example:
-     ```cpp
-     const int dryValue = 3200;   // Dry soil reading
-     const int wetValue = 800;    // Wet soil reading
-     ```
+## 3. ลง firmware ESP32
 
-3. **Upload Firmware**:
-   - Open Arduino IDE
-   - Install ESP32 board: `Tools → Boards Manager → ESP32`
-   - Open the `.ino` file
-   - Connect ESP32 via USB
-   - Click **Upload** (⏤►)
-   - Open Serial Monitor to see boot logs
-
-### Step 2: Configure WiFi
-
-On first boot, ESP32 will create a WiFi access point:
-- **SSID**: `Agriflow-AP`
-- **Password**: `12345678`
-- Connect from your phone/computer
-- Visit `192.168.4.1` in browser
-- Enter your WiFi credentials and server IP/URL
-- Restart the device
-
-### Step 3: Set Up the Backend Server
-
-1. **Clone or Download This Repository**
-
-2. **Install Dependencies**:
-   ```bash
-   npm install
+1. เปิด Arduino IDE → ติดตั้งบอร์ด ESP32 + ไลบรารี `ESP32Servo`
+2. เปิดไฟล์ `moisture-sensor_code/ESP32_SmartSprinkler/ESP32_SmartSprinkler.ino`
+3. **คาลิเบรตเซนเซอร์** — แก้ 2 ค่านี้ให้ตรงเซนเซอร์ของตัวเอง:
+   ```cpp
+   const int dryValue = 3200;  // ค่าตอนดินแห้ง (อ่านจาก Serial Monitor)
+   const int wetValue = 800;   // ค่าตอนจุ่มน้ำ
    ```
-
-3. **Create `.env` File**:
-   ```env
-   PORT=10000
-   NODE_ENV=development
-   DATABASE_URL=postgresql://user:password@localhost:5432/agriflow
-   RENDER_EXTERNAL_URL=https://your-app.onrender.com
-   RESET_TOKEN=ตั้งรหัสเอง-ใช้ยืนยันปุ่ม-Change-WiFi
+4. **จูน servo** (ถ้ามันกระฉากหรือชนสต็อปเปอร์วาล์ว):
+   ```cpp
+   const int VALVE_CLOSED_ANGLE = 0;
+   const int VALVE_OPEN_ANGLE = 70;  // 90 แล้วกระแทกให้ลดลงมา
    ```
+   โค้ดจะค่อยๆ หมุนทีละนิด (sweep) ไม่สั่งกระชากทีเดียวอยู่แล้ว
+5. เสียบสาย USB → กด **Upload** → เปิด Serial Monitor (115200) ดู log
 
-   > Servo ต่อไฟ 5V แยก + GND ร่วมกับ ESP32 อย่าเอาไฟจากขาบอร์ดโดยตรง
-   > คร่อม C 470–1000µF ที่ขั้วไฟ servo กันกระฉากตอนออกตัว
-   > จูนมุมวาล์วใน `.ino` (`VALVE_OPEN_ANGLE` เริ่ม 70 ถ้า 90 ชนสต็อปให้ลดลง)
+## 4. ตั้ง WiFi ครั้งแรก (ทำครั้งเดียว จำลงเครื่อง)
 
-4. **Create PostgreSQL Database**:
-   ```bash
-   createdb agriflow
-   ```
+1. เปิดเครื่องครั้งแรก ESP32 จะปล่อย WiFi ชื่อ **`Agriflow-Setup`** รหัส **`setup123`**
+2. ต่อมือถือเข้าชื่อนี้ หน้า setup จะเด้งขึ้นมาเอง (ถ้าไม่เด้ง เปิดเบราว์เซอร์ไป `http://192.168.4.1`)
+3. เลือก WiFi บ้าน + ใส่รหัส → กด Save → บอร์ดรีบูตแล้วต่อเน็ตเอง
+4. เปลี่ยน WiFi ทีหลังมี 2 ทาง: กดปุ่ม **BOOT** ค้าง 3 วินาที หรือกดปุ่ม **Change WiFi** บนหน้าเว็บ
 
-5. **Start the Server** (Development):
-   ```bash
-   npm run dev
-   ```
-   
-   Or Production:
-   ```bash
-   npm start
-   ```
+> เน็ตหลุดชั่วคราว (เราเตอร์รีบูต) บอร์ดจะลองต่อใหม่เอง รหัสไม่หาย ไม่ต้องตั้งใหม่
 
-6. **Access the Dashboard**:
-   - Open `http://localhost:10000` in your browser
+## 5. รัน server ที่เครื่องตัวเอง
 
-### Step 4: Configure Sensor Settings
-
-In the dashboard:
-1. Navigate to **Settings** (⚙️ icon)
-2. Set **Watering Threshold**: e.g., 40% (opens valve when moisture drops below this)
-3. Set **Watering Duration**: e.g., 3 minutes (how long to water)
-4. Save settings
-
-## 📱 Using the Dashboard
-
-### Main Screen
-- **Moisture Gauge**: Current soil moisture percentage
-- **Valve Status**: Shows if watering is active
-- **Countdown Timer**: Time remaining in watering cycle
-- **History Chart**: 24-hour moisture trend
-
-### Controls
-- **Manual Water**: Tap to water for the configured duration
-- **Settings**: Adjust thresholds and watering time
-- **Info**: View sensor status and last update time
-
-### Understanding Readings
-- **Green Zone** (60-100%): Soil is wet, no watering needed
-- **Yellow Zone** (40-60%): Adequate moisture
-- **Red Zone** (0-40%): Dry soil, watering recommended
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                  Agriflow System                         │
-├─────────────────────────────────────────────────────────┤
-│                                                           │
-│  ESP32 Hardware          Web Server            Database  │
-│  ┌──────────────────┐   ┌──────────────────┐ ┌────────┐ │
-│  │ • Moisture Sensor│──→│ Node.js/Express  │→│PostgreSQL│
-│  │ • Servo Motor    │   │ • REST API       │ │ • Store  │
-│  │ • WiFi Module    │   │ • Static Files   │ │ readings │
-│  │ • Config Portal  │←──│ • Rate Limiting  │ └────────┘ │
-│  └──────────────────┘   └──────────────────┘            │
-│         │                       ▲                         │
-│         └───────── HTTPS ───────┘                        │
-│                                                           │
-│  ┌──────────────────────────────────────┐               │
-│  │   Web Dashboard (HTML/CSS/JS)        │               │
-│  │  • Real-time moisture display        │               │
-│  │  • Watering controls                 │               │
-│  │  • Settings configuration             │               │
-│  │  • Mobile-responsive design           │               │
-│  └──────────────────────────────────────┘               │
-│                                                           │
-└─────────────────────────────────────────────────────────┘
-```
-
-## 🌐 Deployment
-
-### Deploy on Render (Free)
-
-1. **Create Render Account**: https://render.com
-2. **Create PostgreSQL Database**: Add a free tier PostgreSQL instance
-3. **Create Web Service**:
-   - Connect your GitHub repo
-   - Set environment variables (copy from `.env`)
-   - Deploy automatically on push
-4. **Update ESP32 Configuration**:
-   - Set server IP to your Render app URL
-   - Restart ESP32
-
-### Deploy Locally (Docker)
-
-```bash
-docker-compose up
-```
-
-See `docker-compose.yml` for details (if available).
-
-## 🔧 API Endpoints
-
-### Health Check
-```
-GET /api/health
-→ { status: "ok", db: "connected" }
-```
-
-### Get Recent Readings
-```
-GET /api/readings?limit=100
-→ [{id, timestamp, moisture_percent, valve_open, ...}, ...]
-```
-
-### Send Sensor Data (from ESP32)
-```
-POST /api/readings
-Body: { moisture_percent, valve_open, watering_minutes }
-→ { success: true }
-```
-
-### Get Configuration
-```
-GET /api/config
-→ { openThreshold: 40, wateringMinutes: 3 }
-```
-
-### Update Configuration
-```
-POST /api/config
-Body: { openThreshold: 40, wateringMinutes: 3 }
-→ { success: true }
-```
-
-## 📁 Project Structure
-
-```
-Agriflow_demo_myself/
-├── README.md                          # This file
-├── PRODUCT.md                         # Product specification
-├── DESIGN.md                          # Design system & brand guidelines
-├── server.js                          # Express.js server
-├── package.json                       # Node.js dependencies
-├── index.html                         # Dashboard UI
-├── style.css                          # Dashboard styling
-├── script.js                          # Dashboard functionality
-├── Procfile                           # Render.com deployment config
-├── render.yaml                        # Render.com service definition
-└── moisture-sensor_code/              # ESP32 firmware
-    └── ESP32_SmartSprinkler/
-        ├── ESP32_SmartSprinkler.ino   # Main firmware
-        ├── config_portal.h             # WiFi config
-        └── libraries/
-            └── ESP32Servo/             # Servo control library
-```
-
-## 🛠️ Development
-
-### Running Locally
-
-**Backend**:
 ```bash
 npm install
-npm run dev
 ```
 
-**Database**:
+สร้างไฟล์ `.env`:
+```env
+PORT=10000
+NODE_ENV=development
+DATABASE_URL=postgresql://user:password@localhost:5432/agriflow
+RESET_TOKEN=ตั้งรหัสเองไว้ยืนยันปุ่ม-Change-WiFi
+```
+
 ```bash
-# Create database
-createdb agriflow
-
-# The tables are auto-created on first connection
+npm run dev    # พัฒนา
+npm start      # ใช้งานจริง
 ```
 
-**Frontend**:
-- Open `http://localhost:10000` in browser
-- Changes to `index.html`, `style.css`, `script.js` reload automatically
+เปิด `http://localhost:10000` — ตารางใน database สร้างให้อัตโนมัติครั้งแรกที่ต่อติด
+ถ้าไม่มี `DATABASE_URL` ระบบก็รันได้ แต่ข้อมูลจะอยู่แค่ใน memory (รีสตาร์ตทีหาย)
 
-### Editing Firmware
+## 6. Deploy ขึ้น Render
 
-1. Install Arduino IDE: https://www.arduino.cc/en/software
-2. Install ESP32 board in IDE
-3. Edit `moisture-sensor_code/ESP32_SmartSprinkler/ESP32_SmartSprinkler.ino`
-4. Connect ESP32 via USB
-5. Click **Upload** or press `Ctrl+U`
+1. ต่อ GitHub repo เข้า Render → สร้าง Web Service (branch `main`) แบบ auto-deploy
+2. ตั้ง Environment variables:
+   - `NODE_ENV` = `production`
+   - `DATABASE_URL` = ค่า connection string ของ Postgres/Supabase (**ห้ามลืม** ไม่งั้นหน้า `/api/health` จะขึ้น `db: disconnected` แล้วข้อมูลหายทุกครั้งที่ restart)
+   - `RESET_TOKEN` = รหัสเดียวกับที่จะกรอกในหน้าเว็บ
+3. push โค้ด → รอหน้า Events ขึ้น `Live` ตรง commit ล่าสุด
 
-## 🐛 Troubleshooting
+> Render แผนฟรีจะ sleep ถ้าไม่มีคนเข้านานๆ เข้าครั้งแรกหลังทิ้งไว้นานจะโหลดช้า ~1 นาที ถือว่าปกติ
 
-### ESP32 Won't Connect to WiFi
-- Check SSID and password in config portal
-- Verify WiFi network is 2.4 GHz (not 5 GHz)
-- Restart ESP32 and try config portal again
+---
 
-### Moisture Reading Always 0% or 100%
-- Check sensor is properly connected to GPIO 34
-- Verify `dryValue` and `wetValue` calibration
-- Test sensor manually: place in dry soil, then water, check readings
+## 7. ใช้หน้า Dashboard
 
-### Dashboard Shows "Disconnected"
-- Verify ESP32 and server are on same WiFi network
-- Check server IP is correct in ESP32 config
-- Look at server logs for errors: `npm run dev`
+- **Soil Moisture** — เปอร์เซ็นต์ความชื้น + แถบสีบอกระดับดิน (Very Dry → Saturated)
+- **Valve Control** — สถานะ `Idle/Watering` + เวลานับถอยหลัง
+  - ปุ่ม **เปิดตอนนี้** = สั่งเปิดตามเวลาที่ตั้ง แล้วกลับ auto เอง
+  - ปุ่ม **หยุด / Auto** = ยกเลิกคำสั่ง manual ทันที
+- **พืชที่ปลูก** — เลือกชนิดพืชแล้ว threshold + เวลารดจะถูกตั้งตามงานวิจัยให้ กด Save เพื่อใช้ ขยับ slider เองเมื่อไหร่จะกลายเป็น "กำหนดเอง"
+- **Open Threshold** — ความชื้นต่ำกว่านี้ถึงเปิดวาล์ว
+- **Watering Duration** — เปิดวาล์วนานกี่นาที
+- **Change WiFi** — สั่งให้ ESP32 ล้าง WiFi แล้วเปิดโหมดตั้งค่าใหม่ (ครั้งแรกเว็บจะถาม `RESET_TOKEN` จำไว้ในเครื่องให้)
+- **History / Recent Readings** — กราฟกับตารางย้อนหลัง (สูงสุด 200 จุด)
 
-### Server Won't Start
-- Verify Node.js is installed: `node --version`
-- Install dependencies: `npm install`
-- Check PostgreSQL is running (if local)
-- Review `.env` file for DATABASE_URL
+## 8. API (สำหรับอ้างอิง)
 
-## 📖 How to Contribute
+```
+GET  /api/health      → { status, db: connected|disconnected }
+GET  /api/crops       → รายการพืช + threshold/นาทีที่แนะนำ
+GET  /api/config      → config ปัจจุบัน (+ valveOverride ถ้ามี)
+POST /api/config      → { openThreshold, wateringMinutes, cropId }
+POST /api/valve       → { action: open | close | auto }
+POST /api/reset-wifi  → ต้องมี header x-reset-token (ถ้า server ตั้ง RESET_TOKEN ไว้)
+POST /api/sensor      → ESP32 ส่ง { raw, moisture, valve, device, ... }
+GET  /api/data        → { latest, history, devices, config }
+GET  /api/events      → SSE stream เรียลไทม์
+```
 
-We welcome contributions! Here's how:
+---
 
-1. **Fork** this repository
-2. **Create a branch**: `git checkout -b feature/your-feature`
-3. **Make changes** and test thoroughly
-4. **Commit**: `git commit -m "Add your feature"`
-5. **Push**: `git push origin feature/your-feature`
-6. **Open a Pull Request** with a clear description
+## 9. โครงไฟล์
 
-### Areas We Need Help With
-- 🎨 UI/UX improvements and accessibility
-- 📱 Mobile responsiveness testing
-- 📊 Additional sensor support (temperature, humidity)
-- 🔒 Security hardening
-- 📝 Documentation and translations
-- 🐛 Bug fixes and optimizations
+```
+├── server.js                        # Server + API + เสิร์ฟหน้าเว็บ
+├── index.html / style.css / script.js  # Dashboard
+├── render.yaml / Procfile / package.json
+└── moisture-sensor_code/ESP32_SmartSprinkler/
+    ├── ESP32_SmartSprinkler.ino     # เฟิร์มแวร์หลัก (เซนเซอร์+servo+ส่งข้อมูล)
+    └── config_portal.h              # หน้า setup WiFi (AP Agriflow-Setup)
+```
 
-## 📜 License
+## 10. แก้ปัญหาเบื้องต้น
 
-This project is licensed under the **MIT License** - see the LICENSE file for details.
-
-You are free to:
-- ✅ Use for personal and commercial projects
-- ✅ Modify and distribute
-- ✅ Use privately or publicly
-
-Just include the original license and copyright notice.
-
-## 💬 Support & Community
-
-- **Issues**: Report bugs or suggest features on GitHub Issues
-- **Discussions**: Ask questions and share ideas
-- **Documentation**: Check DESIGN.md and PRODUCT.md for more details
-
-## 🙏 Acknowledgments
-
-- ESP32 community for excellent microcontroller support
-- PostgreSQL and Node.js ecosystems
-- Open-source contributors who inspired this project
-
-## 📞 Contact
-
-- **Author**: Agriflow Team
-- **GitHub**: [Your Repository URL]
-- **Email**: [Your Email]
-- **Website**: [Your Website]
+| อาการ | สาเหตุที่พบบ่อย + ทางแก้ |
+|------|--------------------------|
+| `/api/health` ขึ้น `db: disconnected` | ยังไม่ตั้ง `DATABASE_URL` บน Render → ตั้งแล้ว redeploy |
+| กดปุ่ม manual แล้ววาล์วไม่ขยับ | 1) ยังไม่ push โค้ดใหม่ขึ้น Render 2) browser จำ JS เก่า → `Ctrl+Shift+R` 3) ESP32 ยัง firmware เก่า → flash ใหม่ |
+| ESP32 รีบูตเอง / ต่อๆ หลุดๆ | ไฟ servo ไม่พอ → ใช้ 5V แยก + GND ร่วม + คร่อม C 470–1000µF |
+| Servo กระฉาก / ครางค้าง | ลด `VALVE_OPEN_ANGLE` (เช่น 90→70) อย่าให้ชนสต็อปเปอร์ เช็คน็อตฮอร์น วาล์วใหญ่เกินแรง SG90 ให้เปลี่ยนรุ่นทอร์กสูง |
+| ค่าความชื้นค้าง 0% หรือ 100% | `dryValue/wetValue` ไม่ตรงเซนเซอร์ → อ่านค่าจริงจาก Serial แล้วแก้ |
+| หน้าเว็บเพิ่ง deploy แต่ยังเห็นของเก่า | hard-refresh (`Ctrl+Shift+R`) หรือเปิด Incognito |
+| ตั้ง WiFi ใหม่ไม่ได้ | กด BOOT ค้าง 3 วิให้ AP `Agriflow-Setup` เปิด หรือใช้ปุ่ม Change WiFi + `RESET_TOKEN` |
+| เข้าเว็บครั้งแรกช้ามาก | Render free เพิ่งตื่นจาก sleep รอ ~1 นาทีแล้ว refresh |
 
 ---
 
 **Made with 🌱 for gardeners, by gardeners.**
-
-Start growing smarter today! 

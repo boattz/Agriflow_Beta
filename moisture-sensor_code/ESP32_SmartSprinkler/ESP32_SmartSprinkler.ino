@@ -87,8 +87,12 @@ unsigned long lastSendTime = 0;
 const unsigned long SEND_INTERVAL = 5000; // 5 seconds
 
 // ==================== WiFi Connect ====================
-void connectWiFi() {
-  if (WiFi.status() == WL_CONNECTED) return;
+// NOTE: never wipes saved credentials here. A router reboot or dead zone must
+// NOT erase config — wipe happens only via BOOT button or dashboard reset.
+// Setup retries longer then reboots (retries with same creds); loop() retries
+// briefly and keeps running valve control offline.
+bool ensureWiFi(int maxAttempts) {
+  if (WiFi.status() == WL_CONNECTED) return true;
 
   Serial.print("Connecting to WiFi: ");
   Serial.println(cfg.wifiSsid);
@@ -96,24 +100,33 @@ void connectWiFi() {
   WiFi.begin(cfg.wifiSsid.c_str(), cfg.wifiPass.c_str());
 
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
     delay(500);
     Serial.print(".");
-    if (++attempts > 40) {
-      Serial.println("\n❌ WiFi failed after retries — opening config portal.");
-      // Credentials may be wrong/changed: wipe & reconfigure.
-      clearConfig();
-      startConfigPortal();
-      ESP.restart();
-    }
+    attempts++;
   }
 
-  Serial.println();
-  Serial.println("================================");
-  Serial.println("WiFi Connected!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
-  Serial.println("================================");
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println();
+    Serial.println("================================");
+    Serial.println("WiFi Connected!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+    Serial.println("================================");
+    return true;
+  }
+  Serial.println("\n⚠️ WiFi not reachable — continuing offline, will retry.");
+  return false;
+}
+
+void connectWiFi() {
+  // Setup path: try ~20s, then reboot and try again (creds kept).
+  // Hold BOOT ~3s if credentials are truly wrong and portal is needed.
+  if (!ensureWiFi(40)) {
+    Serial.println("❌ WiFi failed — rebooting to retry (config kept).");
+    delay(1000);
+    ESP.restart();
+  }
 }
 
 // ==================== Parse Config from Server ====================
@@ -203,14 +216,26 @@ void setup() {
 
   connectWiFi();
 
-  // Test internet connectivity
+  // Test internet connectivity with a real HTTPS request (plain TCP to
+  // port 443 can never succeed — old check always printed UNREACHABLE).
   Serial.println("[NET] Testing internet...");
-  WiFiClient testClient;
-  if (testClient.connect("agriflow-mvt7.onrender.com", 443)) {
-    Serial.println("[NET] Render reachable ✓");
-    testClient.stop();
-  } else {
-    Serial.println("[NET] Render UNREACHABLE — check WiFi/internet");
+  {
+    HTTPClient http;
+    WiFiClientSecure tls;
+    WiFiClient plain;
+    tls.setInsecure();
+    tls.setTimeout(10000);
+    http.setTimeout(10000);
+    String healthUrl = cfg.serverUrl;
+    int apiIdx = healthUrl.indexOf("/api/sensor");
+    if (apiIdx >= 0) healthUrl = healthUrl.substring(0, apiIdx) + "/api/health";
+    else healthUrl = "https://agriflow-mvt7.onrender.com/api/health";
+    if (healthUrl.startsWith("https")) http.begin(tls, healthUrl);
+    else http.begin(plain, healthUrl);
+    int code = http.GET();
+    if (code == 200) Serial.println("[NET] Server reachable ✓");
+    else Serial.print("[NET] Server check failed, HTTP "); Serial.println(code);
+    http.end();
   }
 
   Serial.println("Agriflow Started");
@@ -229,8 +254,10 @@ void loop() {
     ESP.restart();
   }
 
+  // Short non-blocking reconnect (~8s max). Valve control below keeps
+  // running offline; sensor upload is skipped until WiFi is back.
   if (WiFi.status() != WL_CONNECTED) {
-    connectWiFi();
+    ensureWiFi(16);
   }
 
   // ---------- Read Sensor ----------
