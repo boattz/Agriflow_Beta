@@ -444,13 +444,13 @@ void loop() {
 
       if (cfg.serverUrl.startsWith("https")) {
         secureClient.setInsecure();
-        secureClient.setTimeout(30000);
+        secureClient.setTimeout(15000);
         http.begin(secureClient, cfg.serverUrl);
       } else {
         http.begin(plainClient, cfg.serverUrl);
       }
       http.addHeader("Content-Type", "application/json");
-      http.setTimeout(30000);
+      http.setTimeout(15000);
 
       httpCode = http.POST(json);
 
@@ -465,10 +465,13 @@ void loop() {
 
       if (httpCode != 200 && retries < 3) {
         retries++;
-        int waitSec = retries * 10;
+        int waitSec = retries * 5; // 5/10/15s — fail fast, and keep LAN alive while waiting
         Serial.print("[RETRY "); Serial.print(retries); Serial.print("] wait ");
         Serial.print(waitSec); Serial.println("s ...");
-        delay(waitSec * 1000UL);
+        for (int w = 0; w < waitSec * 10; w++) {
+          if (WiFi.status() == WL_CONNECTED) lanServer.handleClient();
+          delay(100);
+        }
       } else {
         break;
       }
