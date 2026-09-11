@@ -12,6 +12,20 @@ services:
         sync: false
       - key: RESET_TOKEN
         sync: false
+      - key: LINE_ENABLED
+        value: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_REG_CODE
+        sync: false
+      - key: LINE_OFFLINE_MIN
+        value: 10
+      - key: LINE_COOLDOWN_MIN
+        value: 60
+      - key: LINE_MIN_INTERVAL_MIN
+        value: 3
       - key: TIDB_HOST
         sync: false
       - key: TIDB_PORT

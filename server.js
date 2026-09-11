@@ -4,6 +4,7 @@ const cors    = require('cors');
 const { Pool } = require('pg');
 const os      = require('os');
 const path    = require('path');
+const line    = require('./lineNotify');
 
 const app  = express();
 const PORT = process.env.PORT || 10000;
@@ -20,7 +21,9 @@ app.use(cors({
     cb(null, false);
   }
 }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}));
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -139,6 +142,16 @@ async function connectDB() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_readings_created_at ON readings (created_at DESC)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_readings_device ON readings (device)`);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS line_subscribers (
+        line_user_id VARCHAR(50) PRIMARY KEY,
+        display_name VARCHAR(100),
+        active BOOLEAN DEFAULT TRUE,
+        subscribed_at TIMESTAMPTZ DEFAULT NOW(),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
     client.release();
     dbReady = true;
     console.log('[DB] Tables ready');
@@ -256,6 +269,243 @@ function soilLevel(moisture) {
   if (moisture >= 60 && moisture < 80)       return { label: 'Moist',     color: '#00d2ff' };
   return                                            { label: 'Saturated', color: '#7b2ff7' };
 }
+
+// ── LINE Notify (multicast to registered subscribers) ──
+// Spec lock: valve flip + soil-level change → send; 3-min cooldown/device;
+// Very Dry (<20%) bypasses cooldown; offline (>OFFLINE_MIN) once + recovery.
+const lastValveByDevice = {};
+const lastLevelByDevice = {};
+const lastSeenByDevice = {};
+const offlineNotifiedByDevice = {};
+const pendingLevelByDevice = {}; // latest level seen during cooldown → summary after
+
+async function getActiveSubscriberIds() {
+  if (!dbReady) return [];
+  try {
+    const r = await pool.query(`SELECT line_user_id FROM line_subscribers WHERE active = TRUE`);
+    return r.rows.map(x => x.line_user_id).filter(Boolean);
+  } catch (err) {
+    console.error('[LINE] subscribers query failed:', err.message);
+    return [];
+  }
+}
+
+async function multicastToAll(text) {
+  if (!line.isLineEnabled()) return;
+  try {
+    const ids = await getActiveSubscriberIds();
+    if (!ids.length) return;
+    const r = await line.sendMulticast(ids, text);
+    console.log(`[LINE] sent → ${r.sent} subs: ${String(text).slice(0, 80)}`);
+  } catch (err) {
+    console.error('[LINE] send failed:', err.message);
+  }
+}
+
+function fmtTime(d) {
+  try { return new Date(d).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }); }
+  catch { return String(d); }
+}
+
+// Fire-and-forget from POST /api/sensor — never throws
+function handleSensorNotify(reading) {
+  if (!line.isLineEnabled()) return;
+  const c = line.cfg();
+  const id = reading.device || 'ESP32';
+  const now = Date.now();
+  lastSeenByDevice[id] = now;
+  // Device back online → recovery notice (only if we previously flagged offline)
+  if (offlineNotifiedByDevice[id]) {
+    offlineNotifiedByDevice[id] = false;
+    multicastToAll(`✅ ${id} กลับมาออนไลน์แล้ว (${fmtTime(reading.timestamp)})`);
+  }
+
+  const valve = String(reading.valve || 'CLOSE');
+  const levelLabel = (reading.level && reading.level.label) || null;
+  const moisture = reading.moisture;
+  const prevValve = lastValveByDevice[id];
+  const prevLevel = lastLevelByDevice[id];
+
+  const valveChanged = prevValve !== undefined && prevValve !== valve;
+  const levelChanged = prevLevel !== undefined && levelLabel && prevLevel !== levelLabel;
+  const isVeryDry = moisture !== null && parseFloat(moisture) < 20;
+
+  // First sighting → just record baseline, don't spam
+  if (prevValve === undefined) lastValveByDevice[id] = valve;
+  if (prevLevel === undefined && levelLabel) lastLevelByDevice[id] = levelLabel;
+  if (!valveChanged && !levelChanged && !isVeryDry) return;
+
+  const minIntervalMs = c.minIntervalMin * 60000;
+  const critCooldownMs = c.cooldownMin * 60000;
+  const keyBase = 'dev:' + id;
+
+  if (valveChanged) {
+    lastValveByDevice[id] = valve;
+    if (line.shouldNotify(keyBase + ':valve', 0)) {
+      multicastToAll(valve === 'OPEN'
+        ? `🚰 วาล์วเปิดแล้ว — ${id} ความชื้น ${moisture}% (${levelLabel || '-'}) ${fmtTime(reading.timestamp)}`
+        : `🛑 วาล์วปิดแล้ว — ${id} ความชื้น ${moisture}% (${levelLabel || '-'}) ${fmtTime(reading.timestamp)}`);
+    }
+  }
+
+  if (levelChanged || isVeryDry) {
+    const key = keyBase + ':level';
+    const bypass = isVeryDry && line.shouldNotify(keyBase + ':crit', critCooldownMs);
+    if (bypass || line.shouldNotify(key, minIntervalMs)) {
+      if (levelLabel) lastLevelByDevice[id] = levelLabel;
+      delete pendingLevelByDevice[id];
+      multicastToAll(isVeryDry
+        ? `🚨 ดินแห้งวิกฤต ${moisture}% (${levelLabel}) — ${id} ควรตรวจสอบระบบน้ำ ${fmtTime(reading.timestamp)}`
+        : `💧 ความชื้นเปลี่ยน: ${prevLevel} → ${levelLabel} (${moisture}%) — ${id} ${fmtTime(reading.timestamp)}`);
+    } else if (levelLabel) {
+      // flapping inside cooldown → remember latest, summarize later
+      pendingLevelByDevice[id] = { label: levelLabel, moisture, ts: reading.timestamp };
+    }
+  }
+}
+
+// Flush pending level summaries after cooldown (runs inside offline checker tick)
+async function flushPendingLevels() {
+  if (!line.isLineEnabled()) return;
+  const c = line.cfg();
+  const minIntervalMs = c.minIntervalMin * 60000;
+  for (const [id, p] of Object.entries(pendingLevelByDevice)) {
+    if (line.shouldNotify('dev:' + id + ':level', minIntervalMs)) {
+      lastLevelByDevice[id] = p.label;
+      delete pendingLevelByDevice[id];
+      multicastToAll(`💧 ความชื้น (สรุป): ${p.label} (${p.moisture}%) — ${id} ${fmtTime(p.ts)}`);
+    }
+  }
+}
+
+async function checkOfflineDevices() {
+  if (!line.isLineEnabled() || !dbReady) return;
+  const c = line.cfg();
+  const now = Date.now();
+  for (const [id, last] of Object.entries(lastSeenByDevice)) {
+    if (offlineNotifiedByDevice[id]) continue;
+    if (now - last > c.offlineMin * 60000) {
+      offlineNotifiedByDevice[id] = true;
+      multicastToAll(`⚠️ ${id} ไม่ออนไลน์เกิน ${c.offlineMin} นาที (เห็นล่าสุด ${fmtTime(last)})`);
+    }
+  }
+  flushPendingLevels().catch(() => {});
+}
+setInterval(checkOfflineDevices, 60000);
+
+// ── LINE webhook (OA → /api/line/webhook) ────
+app.post('/api/line/webhook', async (req, res) => {
+  try {
+    const sig = req.headers['x-line-signature'];
+    if (!line.verifySignature(req.rawBody, sig)) {
+      return res.status(403).json({ error: 'Invalid signature' });
+    }
+    const events = (req.body && req.body.events) || [];
+    const c = line.cfg();
+    for (const ev of events) {
+      const src = ev.source || {};
+      const userId = src.userId || src.groupId || src.roomId;
+      if (!userId) continue;
+      if (ev.type === 'follow' || ev.type === 'join') {
+        try {
+          let name = null;
+          if (ev.type === 'follow' && line.hasLineConfig()) {
+            const prof = await line.getProfile(userId).catch(() => null);
+            if (prof && prof.displayName) name = String(prof.displayName).slice(0, 100);
+          }
+          if (dbReady) {
+            await pool.query(
+              `INSERT INTO line_subscribers (line_user_id, display_name, active, subscribed_at)
+               VALUES ($1, $2, FALSE, NOW())
+               ON CONFLICT (line_user_id) DO UPDATE SET display_name = COALESCE(EXCLUDED.display_name, line_subscribers.display_name)`,
+              [userId, name]
+            );
+          }
+        } catch (e) { console.error('[LINE] follow save failed:', e.message); }
+        if (c.enabled) {
+          await line.sendReply(ev.replyToken,
+            `ยินดีต้อนรับ 🌱 Agriflow\nพิมพ์รหัสลงทะเบียนเพื่อรับแจ้งเตือน\n(ขอจากผู้ดูแลระบบ)`).catch(() => {});
+        }
+      } else if (ev.type === 'unfollow' || ev.type === 'leave') {
+        if (dbReady) {
+          await pool.query(`UPDATE line_subscribers SET active = FALSE WHERE line_user_id = $1`, [userId]).catch(() => {});
+        }
+      } else if (ev.type === 'message' && ev.message && ev.message.type === 'text') {
+        const text = String(ev.message.text || '').trim();
+        if (!c.enabled) continue;
+        const lower = text.toLowerCase();
+        if (lower === 'ยกเลิก' || lower === 'หยุด' || lower === 'unsubscribe' || lower === 'stop') {
+          if (dbReady) await pool.query(`UPDATE line_subscribers SET active = FALSE WHERE line_user_id = $1`, [userId]).catch(() => {});
+          await line.sendReply(ev.replyToken, `ยกเลิกรับแจ้งเตือนแล้ว 🔕\nพิมพ์รหัสลงทะเบียนเพื่อสมัครใหม่`).catch(() => {});
+        } else if (lower === 'สถานะ' || lower === 'status') {
+          let msg = 'ยังไม่มีข้อมูลเซ็นเซอร์';
+          if (dbReady) {
+            try {
+              const r = await pool.query(`SELECT device, moisture, valve, created_at FROM readings ORDER BY created_at DESC LIMIT 1`);
+              if (r.rows.length) {
+                const x = r.rows[0];
+                msg = `📊 ${x.device}: ${x.moisture}% วาล์ว ${x.valve} (${fmtTime(x.created_at)})`;
+              }
+            } catch {}
+          }
+          await line.sendReply(ev.replyToken, msg).catch(() => {});
+        } else if (c.regCode && text === c.regCode) {
+          try {
+            let name = null;
+            if (line.hasLineConfig()) {
+              const prof = await line.getProfile(userId).catch(() => null);
+              if (prof && prof.displayName) name = String(prof.displayName).slice(0, 100);
+            }
+            if (dbReady) {
+              await pool.query(
+                `INSERT INTO line_subscribers (line_user_id, display_name, active, subscribed_at)
+                 VALUES ($1, $2, TRUE, NOW())
+                 ON CONFLICT (line_user_id) DO UPDATE SET active = TRUE, subscribed_at = NOW(),
+                   display_name = COALESCE(EXCLUDED.display_name, line_subscribers.display_name)`,
+                [userId, name]
+              );
+            }
+          } catch (e) { console.error('[LINE] subscribe failed:', e.message); }
+          await line.sendReply(ev.replyToken, `สมัครสำเร็จ ✅\nจะแจ้งเตือนเมื่อวาล์ว/ระดับดินเปลี่ยน`).catch(() => {});
+        } else {
+          await line.sendReply(ev.replyToken, `พิมพ์รหัสลงทะเบียนเพื่อสมัครรับแจ้งเตือน 🌱\nหรือพิมพ์ "สถานะ" เพื่อดูค่าล่าสุด`).catch(() => {});
+        }
+      }
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[LINE] webhook error:', err.message);
+    res.json({ ok: true }); // always 200 so LINE doesn't retry-storm
+  }
+});
+
+// ── LINE admin (hidden, RESET_TOKEN auth, no dashboard UI per spec) ──
+app.get('/api/line/subscribers', async (req, res) => {
+  if (!checkResetAuth(req)) return res.status(403).json({ error: 'Invalid reset token' });
+  if (!dbReady) return res.json({ count: 0, subscribers: [] });
+  try {
+    const r = await pool.query(`SELECT line_user_id, display_name, active, subscribed_at FROM line_subscribers ORDER BY subscribed_at DESC LIMIT 500`);
+    res.json({ count: r.rows.length, active: r.rows.filter(x => x.active).length, subscribers: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/line/test', rateLimit(5, 60000), async (req, res) => {
+  if (!checkResetAuth(req)) return res.status(403).json({ error: 'Invalid reset token' });
+  if (!line.isLineEnabled()) return res.status(400).json({ error: 'LINE not enabled/configured' });
+  const { to, text } = req.body || {};
+  try {
+    if (to) {
+      await line.sendPush(String(to), String(text || 'ทดสอบ Agriflow ✅'));
+      return res.json({ ok: true, mode: 'push', to });
+    }
+    await multicastToAll(String(text || 'ทดสอบ Agriflow ✅ ระบบแจ้งเตือนพร้อมใช้งาน'));
+    res.json({ ok: true, mode: 'multicast' });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
 
 // ── GET /api/crops ───────────────────────────
 app.get('/api/crops', (req, res) => {
@@ -388,6 +638,7 @@ app.post('/api/sensor', rateLimit(60, 60000), async (req, res) => {
   console.log(`[${ts}] ${id} — ${mPart}${dhtPart}Valve: ${valve}${level ? ' | ' + level.label : ''}`);
 
   broadcast({ type: 'reading', data: reading });
+  try { handleSensorNotify(reading); } catch (e) { console.error('[LINE] notify hook:', e.message); }
   res.json({ ok: true, reading, config: snapshot });
 });
 
