@@ -28,8 +28,8 @@ const int SERVO_MAX_US = 2400;
 const int SERVO_STEP_DEG = 2;      // deg per step
 const int SERVO_STEP_MS = 20;      // ms per step → 0→70 takes ~0.7s
 const unsigned long REOPEN_COOLDOWN_MS = 1UL * 60UL * 1000UL; // short guard against rapid on/off cycling
-const int REOPEN_RISE_PCT = 5;       // must see moisture rise this far above threshold after a close
-const unsigned long REOPEN_FALLBACK_MS = 30UL * 60UL * 1000UL; // ...before re-opening anyway (slow drainage)
+const int REOPEN_RISE_PCT = 3;       // must see moisture rise this far above threshold after a close
+const unsigned long REOPEN_FALLBACK_MS = 10UL * 60UL * 1000UL; // ...before re-opening anyway (slow drainage)
 
 Servo valveServo;
 bool valveOpen = false;
@@ -88,7 +88,7 @@ unsigned long resetPressedSince = 0;
 
 // ==================== Send Timer ====================
 unsigned long lastSendTime = 0;
-const unsigned long SEND_INTERVAL = 5000; // 5 seconds
+const unsigned long SEND_INTERVAL = 30000; // 30 seconds (TLS handshake every send is heavy — 5s just spams Render free tier and causes -1/-5 errors)
 
 // ==================== WiFi Connect ====================
 // NOTE: never wipes saved credentials here. A router reboot or dead zone must
@@ -328,7 +328,7 @@ void loop() {
   }
   Serial.println();
 
-  // ---------- Send to Dashboard (every 10 seconds) ----------
+  // ---------- Send to Dashboard (every SEND_INTERVAL) ----------
   if (millis() - lastSendTime >= SEND_INTERVAL && WiFi.status() == WL_CONNECTED) {
     lastSendTime = millis();
 
