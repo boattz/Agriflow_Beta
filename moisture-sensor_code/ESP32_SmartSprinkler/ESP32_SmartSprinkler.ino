@@ -2,10 +2,17 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ESP32Servo.h>
+#include <WebServer.h>   // LAN fast path: serve /local-data + /local-valve (no cloud round-trip)
+#include <ESPmDNS.h>      // → http://agriflow.local
 #include "config_portal.h"   // WiFi + server IP via captive portal (NVS-persisted)
 
 // ==================== Config (loaded from NVS) ===================
 DeviceConfig cfg;
+
+// ==================== LAN Server (fast local dashboard) ===================
+// Dashboard polls this directly when on the same WiFi (every 3s, plain HTTP).
+// Cloud push (Render) stays as history/LINE/config source.
+WebServer lanServer(80);
 
 // ==================== Sensor ==================
 const int moisturePin = 34;
@@ -197,6 +204,68 @@ void parseConfig(String response) {
   }
 }
 
+// ==================== LAN Handlers ====================
+void handleLocalOptions() {
+  lanServer.sendHeader("Access-Control-Allow-Origin", "*");
+  lanServer.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  lanServer.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+  lanServer.send(200, "text/plain", "");
+}
+
+void handleLocalData() {
+  lanServer.sendHeader("Access-Control-Allow-Origin", "*");
+  int rawValue = analogRead(moisturePin);
+  int moisturePercent = constrain(map(rawValue, dryValue, wetValue, 0, 100), 0, 100);
+  String json = "{";
+  json += "\"device\":\"ESP32_Sprinkler\",";
+  json += "\"raw\":" + String(rawValue) + ",";
+  json += "\"moisture\":" + String(moisturePercent) + ",";
+  json += "\"threshold\":" + String(openThreshold) + ",";
+  json += "\"wateringMinutes\":" + String(wateringMinutes) + ",";
+  json += "\"valve\":\"" + String(valveOpen ? "OPEN" : "CLOSE") + "\"";
+  json += "}";
+  lanServer.send(200, "application/json", json);
+}
+
+void handleLocalValve() {
+  lanServer.sendHeader("Access-Control-Allow-Origin", "*");
+  String body = lanServer.arg("plain");
+  bool wantAuto = body.indexOf("auto") >= 0;
+  bool wantOpen = body.indexOf("open") >= 0;
+  bool wantClose = body.indexOf("close") >= 0;
+  if (wantAuto) {
+    manualUntil = 0;
+    Serial.println("[LAN] Valve -> AUTO");
+    lanServer.send(200, "application/json", "{\"ok\":true,\"mode\":\"auto\"}");
+  } else if (wantOpen || wantClose) {
+    manualOpen = wantOpen;
+    manualUntil = millis() + (unsigned long)wateringMinutes * 60000UL;
+    if (wantOpen && !valveOpen) openValve();
+    else if (wantClose && valveOpen) closeValve();
+    Serial.print("[LAN] Valve -> ");
+    Serial.println(wantOpen ? "OPEN" : "CLOSE");
+    lanServer.send(200, "application/json", "{\"ok\":true,\"mode\":\"manual\"}");
+  } else {
+    lanServer.send(400, "application/json", "{\"error\":\"action must be open, close or auto\"}");
+  }
+}
+
+void startLanServer() {
+  lanServer.on("/local-data", HTTP_GET, handleLocalData);
+  lanServer.on("/local-data", HTTP_OPTIONS, handleLocalOptions);
+  lanServer.on("/local-valve", HTTP_POST, handleLocalValve);
+  lanServer.on("/local-valve", HTTP_OPTIONS, handleLocalOptions);
+  lanServer.onNotFound([]() {
+    lanServer.sendHeader("Access-Control-Allow-Origin", "*");
+    lanServer.send(404, "text/plain", "not found");
+  });
+  lanServer.begin();
+  if (MDNS.begin("agriflow")) {
+    MDNS.addService("http", "tcp", 80);
+    Serial.println("[LAN] mDNS ready → http://agriflow.local/local-data");
+  }
+}
+
 // ==================== Setup ====================
 void setup() {
   Serial.begin(115200);
@@ -219,6 +288,9 @@ void setup() {
   }
 
   connectWiFi();
+
+  // LAN fast path for dashboard on the same WiFi (port 80 free: portal stopped)
+  startLanServer();
 
   // Test internet connectivity with a real HTTPS request (plain TCP to
   // port 443 can never succeed — old check always printed UNREACHABLE).
@@ -263,6 +335,9 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     ensureWiFi(16);
   }
+
+  // Serve LAN dashboard requests (non-blocking)
+  if (WiFi.status() == WL_CONNECTED) lanServer.handleClient();
 
   // ---------- Read Sensor ----------
   int rawValue = analogRead(moisturePin);

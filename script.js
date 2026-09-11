@@ -48,6 +48,9 @@ function toggleTheme() {
 var themeBtn = document.getElementById('theme-btn');
 if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
 
+var lanBtn = document.getElementById('lan-btn');
+if (lanBtn) lanBtn.addEventListener('click', setLanIp);
+
 // Clock
 function updateClock() {
   document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'});
@@ -105,6 +108,10 @@ function updateLastSeen() {
     }
   }
   if (newState === 'offline') return;
+  if (lastSeenState === 'online') {
+    var wantTxt = 'Connected' + (isLanFresh() ? ' · LAN' : '');
+    if (txt.textContent !== wantTxt) txt.textContent = wantTxt;
+  }
   var text;
   if (diff < 5) text = 'Just now';
   else if (diff < 60) text = diff + 's ago';
@@ -471,6 +478,87 @@ function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
+// ── LAN fast path (ESP32 direct, Agriscan-style) ──
+// Cloud (Render free) is slow: TLS handshake + cold starts. When this device
+// is on the same WiFi as the ESP32, poll it directly every 3s over plain HTTP.
+// Cloud SSE/poll stays as fallback + history/config source.
+// NOTE: var (not let) — updateLastSeen above reads these every second.
+var lanBase = null;   // working origin, e.g. http://192.168.1.50
+var lanFreshAt = 0;   // last successful LAN poll
+var lanBusy = false;
+
+function lanCandidates() {
+  var list = [];
+  var custom = null;
+  try { custom = localStorage.getItem('agriflow_esp32_ip'); } catch (e) {}
+  if (custom) {
+    var u = custom.trim();
+    if (u && !/^https?:\/\//i.test(u)) u = 'http://' + u;
+    if (u) list.push(u.replace(/\/+$/, ''));
+  }
+  if (lanBase) list.push(lanBase);
+  list.push('http://agriflow.local');
+  return list.filter(function(u, i) { return list.indexOf(u) === i; });
+}
+
+function setLanIp() {
+  var cur = '';
+  try { cur = localStorage.getItem('agriflow_esp32_ip') || ''; } catch (e) {}
+  var input = prompt('IP ของ ESP32 ใน WiFi วงเดียวกัน (เช่น 192.168.1.50)\nเว้นว่าง = ใช้ agriflow.local อัตโนมัติ', cur);
+  if (input === null) return;
+  try {
+    if (input.trim()) localStorage.setItem('agriflow_esp32_ip', input.trim());
+    else localStorage.removeItem('agriflow_esp32_ip');
+  } catch (e) {}
+  lanBase = null;
+  pollLan();
+}
+
+function handleLanReading(j) {
+  var m = parseFloat(j.moisture);
+  var color = m < 20 ? '#ff4757' : m < 40 ? '#ff6b35' : m < 60 ? '#2ed573' : m < 80 ? '#00d2ff' : '#7b2ff7';
+  var label = m < 20 ? 'Very Dry' : m < 40 ? 'Dry' : m < 60 ? 'Good' : m < 80 ? 'Moist' : 'Saturated';
+  processReading({
+    device: j.device || 'ESP32',
+    raw: j.raw !== undefined ? j.raw : null,
+    moisture: String(j.moisture),
+    valve: j.valve || 'CLOSE',
+    level: { label: label, color: color },
+    humidity: null, temperature: null, heatIndex: null,
+    config: (typeof currentConfig !== 'undefined' && currentConfig) ? currentConfig : null,
+    timestamp: new Date().toISOString()
+  }, false);
+  lastReadingTime = Date.now();
+  updateLastSeen();
+}
+
+function pollLan() {
+  if (lanBusy || document.visibilityState === 'hidden') return;
+  lanBusy = true;
+  var cands = lanCandidates();
+  var i = 0;
+  function next() {
+    if (i >= cands.length) { lanBusy = false; return; }
+    var base = cands[i++];
+    var ctrl = new AbortController();
+    var to = setTimeout(function() { ctrl.abort(); }, 2500);
+    fetch(base + '/local-data', { signal: ctrl.signal })
+      .then(function(res) { clearTimeout(to); if (!res.ok) throw 0; return res.json(); })
+      .then(function(j) {
+        if (j.moisture === undefined) throw 0;
+        lanBase = base;
+        lanFreshAt = Date.now();
+        handleLanReading(j);
+        lanBusy = false;
+      })
+      .catch(function() { next(); });
+  }
+  next();
+}
+setInterval(pollLan, 3000);
+
+function isLanFresh() { return Date.now() - lanFreshAt < 10000; }
+
 // SSE
 function connectSSE() {
   setStatus('connecting');
@@ -506,7 +594,13 @@ function connectSSE() {
         if (msg.data.history && msg.data.history.length) { history = msg.data.history; totalCount = history.length; processReading(history[0], true); }
         if (msg.data.config) handleConfigUpdate(msg.data.config);
       } else if (msg.type === 'reading') {
-        processReading(msg.data, false);
+        // Skip cloud echo while LAN fast path feeds fresher same-value data
+        var last = history.length ? history[history.length - 1] : null;
+        var dup = isLanFresh() && last && msg.data &&
+          last.device === msg.data.device &&
+          String(last.moisture) === String(msg.data.moisture) &&
+          last.valve === msg.data.valve;
+        if (!dup) processReading(msg.data, false);
         if (msg.data.config) handleConfigUpdate(msg.data.config);
       } else if (msg.type === 'config') {
         console.log('[SSE] Config update!');
@@ -606,6 +700,22 @@ function updateManualUI() {
 setInterval(updateManualUI, 1000);
 
 function sendValve(action) {
+  // LAN first (instant on same WiFi), cloud fallback
+  if (isLanFresh() && lanBase) {
+    var ctrl = new AbortController();
+    var to = setTimeout(function() { ctrl.abort(); }, 2500);
+    fetch(lanBase + '/local-valve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action }), signal: ctrl.signal })
+    .then(function(r) { clearTimeout(to); if (!r.ok) throw 0; return r.json(); })
+    .then(function() {
+      showToast('Valve', action === 'auto' ? 'กลับโหมด auto แล้ว (LAN)' : 'สั่ง ' + action + ' แล้ว (LAN)');
+    })
+    .catch(function() { sendValveCloud(action); });
+    return;
+  }
+  sendValveCloud(action);
+}
+
+function sendValveCloud(action) {
   fetch('/api/valve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action }) })
   .then(function(r) { return r.json().then(function(j) { return { status: r.status, body: j }; }); })
   .then(function(res) {
@@ -759,6 +869,7 @@ initChart();
 populateCropSelect('custom');
 loadConfig();
 loadCrops();
+pollLan();
 startPolling();
 connectSSE();
 
