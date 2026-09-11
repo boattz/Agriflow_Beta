@@ -70,10 +70,9 @@ app.use(express.static(__dirname, {
     if (!STATIC_ALLOWED.includes(ext) || BLOCKED_FILES.includes(base)) {
       res.status(403).end();
     }
-    if (ext === '.html') {
+    if (ext === '.html' || ext === '.js' || ext === '.css') {
+      // no-cache (not immutable): dashboard must pick up new deploys immediately
       res.setHeader('Cache-Control', 'no-cache');
-    } else if (ext === '.js' || ext === '.css') {
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
   }
 }));
