@@ -95,7 +95,7 @@ unsigned long resetPressedSince = 0;
 
 // ==================== Send Timer ====================
 unsigned long lastSendTime = 0;
-const unsigned long SEND_INTERVAL = 30000; // 30 seconds (TLS handshake every send is heavy — 5s just spams Render free tier and causes -1/-5 errors)
+const unsigned long SEND_INTERVAL = 15000; // 15 seconds (TLS handshake every send is heavy — 5s just spams Render free tier and causes -1/-5 errors)
 
 // ==================== WiFi Connect ====================
 // NOTE: never wipes saved credentials here. A router reboot or dead zone must
