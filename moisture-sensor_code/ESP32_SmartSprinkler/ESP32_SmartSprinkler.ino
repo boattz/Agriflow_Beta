@@ -27,7 +27,9 @@ const int SERVO_MIN_US = 500;
 const int SERVO_MAX_US = 2400;
 const int SERVO_STEP_DEG = 2;      // deg per step
 const int SERVO_STEP_MS = 20;      // ms per step → 0→70 takes ~0.7s
-const unsigned long REOPEN_COOLDOWN_MS = 5UL * 60UL * 1000UL; // no auto re-open within 5 min
+const unsigned long REOPEN_COOLDOWN_MS = 1UL * 60UL * 1000UL; // short guard against rapid on/off cycling
+const int REOPEN_RISE_PCT = 5;       // must see moisture rise this far above threshold after a close
+const unsigned long REOPEN_FALLBACK_MS = 30UL * 60UL * 1000UL; // ...before re-opening anyway (slow drainage)
 
 Servo valveServo;
 bool valveOpen = false;
@@ -35,6 +37,7 @@ unsigned long valveStartTime = 0;
 int currentAngle = VALVE_CLOSED_ANGLE;
 bool servoAttached = false;
 unsigned long lastValveCloseTime = 0;
+int peakMoistureSinceClose = -1; // wettest reading seen while closed (-1 = none yet)
 
 // Manual override from dashboard (temporary, local timeout)
 unsigned long manualUntil = 0;
@@ -77,6 +80,7 @@ void closeValve() {
   servoRelax();
   valveOpen = false;
   lastValveCloseTime = millis();
+  peakMoistureSinceClose = -1; // restart hysteresis tracking
 }
 
 // ==================== Reset Button ====================
@@ -280,16 +284,26 @@ void loop() {
       closeValve();
       manualUntil = 0;
     }
-    if (!manualActive() && valveOpen) lastValveCloseTime = millis();
   } else {
-    // Auto: moisture drops below threshold & valve closed & cooldown passed
+    // Hysteresis: remember the wettest reading seen while closed, so a new
+    // cycle requires proof the soil actually got wetter after last watering.
+    if (!valveOpen && moisturePercent > peakMoistureSinceClose) {
+      peakMoistureSinceClose = moisturePercent;
+    }
+    // Auto: dry + cooldown passed + (risen enough since close, or fallback time)
     bool cooldownOk = (lastValveCloseTime == 0) ||
                       (millis() - lastValveCloseTime >= REOPEN_COOLDOWN_MS);
-    if (!valveOpen && moisturePercent < openThreshold && cooldownOk) {
+    bool roseOk = (peakMoistureSinceClose < 0) ||
+                  (peakMoistureSinceClose >= openThreshold + REOPEN_RISE_PCT);
+    bool fallbackOk = (lastValveCloseTime != 0) &&
+                      (millis() - lastValveCloseTime >= REOPEN_FALLBACK_MS);
+    if (!valveOpen && moisturePercent < openThreshold && cooldownOk && (roseOk || fallbackOk)) {
       Serial.println("Soil Dry -> Open Valve");
       openValve();
     } else if (!valveOpen && moisturePercent < openThreshold && !cooldownOk) {
       Serial.println("Soil Dry but in cooldown -> wait");
+    } else if (!valveOpen && moisturePercent < openThreshold) {
+      Serial.println("Soil Dry but waiting for moisture rise -> wait");
     }
 
     // Close: timer expired
