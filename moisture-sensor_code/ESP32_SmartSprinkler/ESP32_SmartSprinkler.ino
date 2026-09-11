@@ -29,7 +29,7 @@ const int SERVO_STEP_DEG = 2;      // deg per step
 const int SERVO_STEP_MS = 20;      // ms per step → 0→70 takes ~0.7s
 const unsigned long REOPEN_COOLDOWN_MS = 1UL * 60UL * 1000UL; // short guard against rapid on/off cycling
 const int REOPEN_RISE_PCT = 3;       // must see moisture rise this far above threshold after a close
-const unsigned long REOPEN_FALLBACK_MS = 10UL * 60UL * 1000UL; // ...before re-opening anyway (slow drainage)
+const unsigned long REOPEN_FALLBACK_MS = 1UL * 60UL * 1000UL; // ...before re-opening anyway (slow drainage)
 
 Servo valveServo;
 bool valveOpen = false;
