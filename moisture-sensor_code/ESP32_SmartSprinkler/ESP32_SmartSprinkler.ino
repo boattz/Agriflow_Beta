@@ -78,23 +78,19 @@ const int wetValue = 800;
 int openThreshold = 40;
 int wateringMinutes = 3;
 
-// ==================== Servo (smooth, anti-jerk) ====================
+// ==================== Servo (original drive: instant, always attached) ====================
 // Tune these to your valve: if 90 hits the hard stop, lower to ~70.
 const int VALVE_CLOSED_ANGLE = 0;
 const int VALVE_OPEN_ANGLE = 90;
-const int SERVO_MIN_US = 500;
-const int SERVO_MAX_US = 2400;
-const int SERVO_STEP_DEG = 2;      // deg per step
-const int SERVO_STEP_MS = 20;      // ms per step → 0→70 takes ~0.7s
 const unsigned long REOPEN_COOLDOWN_MS = 1UL * 60UL * 1000UL; // short guard against rapid on/off cycling
 const int REOPEN_RISE_PCT = 3;       // must see moisture rise this far above threshold after a close
 const unsigned long REOPEN_FALLBACK_MS = 1UL * 60UL * 1000UL; // ...before re-opening anyway (slow drainage)
+// Fresh boot (lastValveCloseTime == 0) has no previous cycle to guard → allow
+// (see fallbackOk in loop)
 
 Servo valveServo;
 bool valveOpen = false;
 unsigned long valveStartTime = 0;
-int currentAngle = VALVE_CLOSED_ANGLE;
-bool servoAttached = false;
 unsigned long lastValveCloseTime = 0;
 int peakMoistureSinceClose = -1; // wettest reading seen while closed (-1 = none yet)
 
@@ -103,40 +99,13 @@ unsigned long manualUntil = 0;
 bool manualOpen = false;
 bool manualActive() { return manualUntil != 0 && millis() < manualUntil; }
 
-void servoEnsureAttached() {
-  if (!servoAttached) {
-    valveServo.attach(servoPin, SERVO_MIN_US, SERVO_MAX_US);
-    servoAttached = true;
-    delay(50);
-  }
-}
-void servoRelax() {
-  delay(300); // let horn settle before cutting PWM hum
-  valveServo.detach();
-  servoAttached = false;
-}
-// Gradual sweep instead of instant write() → no jerk/current spike
-void moveServoSlow(int target) {
-  target = constrain(target, 0, 180);
-  servoEnsureAttached();
-  int step = (target > currentAngle) ? SERVO_STEP_DEG : -SERVO_STEP_DEG;
-  while (currentAngle != target) {
-    currentAngle += step;
-    if ((step > 0 && currentAngle > target) || (step < 0 && currentAngle < target))
-      currentAngle = target;
-    valveServo.write(currentAngle);
-    delay(SERVO_STEP_MS);
-  }
-}
 void openValve() {
-  moveServoSlow(VALVE_OPEN_ANGLE);
-  servoRelax();
+  valveServo.write(VALVE_OPEN_ANGLE);
   valveOpen = true;
   valveStartTime = millis();
 }
 void closeValve() {
-  moveServoSlow(VALVE_CLOSED_ANGLE);
-  servoRelax();
+  valveServo.write(VALVE_CLOSED_ANGLE);
   valveOpen = false;
   lastValveCloseTime = millis();
   peakMoistureSinceClose = -1; // restart hysteresis tracking
@@ -343,19 +312,9 @@ void setup() {
   Serial.begin(115200);
   delay(300);
 
-  valveServo.attach(servoPin, SERVO_MIN_US, SERVO_MAX_US);
-  servoAttached = true;
-  valveServo.write(currentAngle);
+  valveServo.attach(servoPin);
+  valveServo.write(VALVE_CLOSED_ANGLE);
   delay(500);
-
-  // Boot self-test: sweep 0 → 70 → 0 so a dead servo/power issue is obvious
-  Serial.println("[SERVO] Self-test: sweeping...");
-  for (int a = 0; a <= VALVE_OPEN_ANGLE; a += 5) { valveServo.write(a); delay(40); }
-  delay(300);
-  for (int a = VALVE_OPEN_ANGLE; a >= 0; a -= 5) { valveServo.write(a); delay(40); }
-  currentAngle = VALVE_CLOSED_ANGLE;
-  Serial.println("[SERVO] Self-test done");
-  servoRelax();
 
   // Reset button is on the BOOT pin.
   pinMode(CP_RESET_PIN, INPUT_PULLUP);
