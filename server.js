@@ -387,7 +387,9 @@ function handleSensorNotify(reading) {
 
   if (valveChanged) {
     lastValveByDevice[id] = valve;
-    if (line.shouldNotify(keyBase + ':valve', 0)) {
+    // Throttle repeats: a stuck-cycling valve must not machine-gun the
+    // monthly LINE quota (free plan = 200 push/month, replies are free)
+    if (line.shouldNotify(keyBase + ':valve', minIntervalMs)) {
       const opened = valve === 'OPEN';
       multicastToAll(line.flexAlert({
         accent: opened ? '#22c55e' : '#64748b',
@@ -470,6 +472,8 @@ async function checkOfflineDevices() {
   for (const [id, last] of Object.entries(lastSeenByDevice)) {
     if (offlineNotifiedByDevice[id]) continue;
     if (now - last > c.offlineMin * 60000) {
+      // Retry at most every 10 min while unsent (e.g. quota 429) — not every 30s tick
+      if (!line.shouldNotify('dev:' + id + ':offline-retry', 10 * 60000)) continue;
       const sent = await multicastToAll(line.flexAlert({
         accent: '#f59e0b', title: `⚠️ ${id} ไม่ออนไลน์`,
         alt: `${id} ไม่ออนไลน์เกิน ${c.offlineMin} นาที`,
