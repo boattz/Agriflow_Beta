@@ -763,15 +763,20 @@ async function handleLineMessage(userId, replyToken, rawText) {
     return;
   }
 
-  // ④ Status snapshot (flex card)
+  // ④ Status snapshot (flex card, incl. online/offline from data age)
   if (['สถานะ', 'status', 'ดูสถานะ'].includes(lower)) {
     const x = await latestLineReading();
     if (!x) { await replyCmd(replyToken, 'ยังไม่มีข้อมูลเซ็นเซอร์ 📡\nรอ ESP32 ส่งข้อมูลรอบแรก'); return; }
+    const ageMs = Date.now() - new Date(x.created_at).getTime();
+    const online = ageMs <= c.offlineMin * 60000;
+    const ageText = ageMs < 60000
+      ? Math.max(0, Math.floor(ageMs / 1000)) + ' วิที่แล้ว'
+      : Math.floor(ageMs / 60000) + ' นาทีที่แล้ว';
     await replyCmd(replyToken, line.flexStatus({
       device: x.device, moisture: x.moisture != null ? String(x.moisture) : null,
       level: x.level_label, levelColor: x.level_color, valve: x.valve,
       threshold: config.openThreshold, minutes: config.wateringMinutes,
-      time: fmtTime(x.created_at),
+      time: fmtTime(x.created_at), online, ageText,
     }));
     return;
   }

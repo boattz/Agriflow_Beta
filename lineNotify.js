@@ -128,6 +128,7 @@ function flexAlert(o) {
     flexRow('วาล์ว', o.valve === 'OPEN' ? '● เปิด' : '○ ปิด', o.valve === 'OPEN' ? '#22c55e' : '#8b9bb4'),
     flexRow('เวลา', o.time || '-'),
   ];
+  if (o.extraTop) rows.push(flexRow(o.extraTop[0], o.extraTop[1], o.extraTop[2]));
   if (o.extra) rows.push(flexRow(o.extra[0], o.extra[1]));
   body.push({ type: 'box', layout: 'vertical', margin: 'md', spacing: 'sm', contents: rows });
   const contents = {
@@ -147,14 +148,18 @@ function flexAlert(o) {
   return { type: 'flex', altText: o.alt || o.title, contents };
 }
 
-// Status card: full snapshot + config + control buttons
+// Status card: full snapshot + online state + config + control buttons
 function flexStatus(o) {
+  const online = o.online !== false;
   return flexAlert({
-    accent: '#0ea5e9',
-    title: '📊 สถานะ Agriflow',
-    alt: `สถานะ: ความชื้น ${o.moisture}% วาล์ว ${o.valve}`,
+    accent: online ? '#0ea5e9' : '#f59e0b',
+    title: online ? '📊 สถานะ Agriflow' : '⚠️ Agriflow (ข้อมูลเก่า)',
+    alt: `สถานะ: ${online ? 'ออนไลน์' : 'ออฟไลน์'} ความชื้น ${o.moisture}% วาล์ว ${o.valve}`,
     moisture: o.moisture, level: o.level, levelColor: o.levelColor,
     valve: o.valve, device: o.device, time: o.time,
+    extraTop: online
+      ? ['สถานะ', '● ออนไลน์', '#22c55e']
+      : ['สถานะ', `○ ออฟไลน์ (${o.ageText || 'ขาดการติดต่อ'})`, '#f59e0b'],
     extra: ['เกณฑ์รดน้ำ', `<${o.threshold}% · ${o.minutes} นาที`],
     buttons: [
       { label: '🚰 เปิดวาล์ว', text: 'เปิดวาล์ว' },
