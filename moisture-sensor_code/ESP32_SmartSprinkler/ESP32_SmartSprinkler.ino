@@ -450,7 +450,8 @@ void loop() {
                       (millis() - lastValveCloseTime >= REOPEN_COOLDOWN_MS);
     bool roseOk = (peakMoistureSinceClose < 0) ||
                   (peakMoistureSinceClose >= openThreshold + REOPEN_RISE_PCT);
-    bool fallbackOk = (lastValveCloseTime != 0) &&
+    // Fresh boot (lastValveCloseTime == 0) has no previous cycle to guard → allow
+    bool fallbackOk = (lastValveCloseTime == 0) ||
                       (millis() - lastValveCloseTime >= REOPEN_FALLBACK_MS);
     // Wait notices: print only on change (not every 100ms loop)
     static int lastWaitMsg = 0; // 0=none, 1=cooldown, 2=rise
