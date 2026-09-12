@@ -320,15 +320,20 @@ async function getActiveSubscriberIds() {
 }
 
 async function multicastToAll(msg, logLabel) {
-  if (!line.isLineEnabled()) return;
+  if (!line.isLineEnabled()) return false;
   try {
     const ids = await getActiveSubscriberIds();
-    if (!ids.length) return;
+    if (!ids.length) {
+      console.error(`[LINE] skip ${logLabel || 'msg'}: no active subscribers`);
+      return false;
+    }
     const r = await line.sendMulticast(ids, msg);
     const label = logLabel || (typeof msg === 'string' ? msg : (msg.altText || msg.type || 'flex'));
     console.log(`[LINE] sent → ${r.sent} subs: ${String(label).slice(0, 80)}`);
+    return true;
   } catch (err) {
     console.error('[LINE] send failed:', err.message);
+    return false;
   }
 }
 
@@ -465,14 +470,15 @@ async function checkOfflineDevices() {
   for (const [id, last] of Object.entries(lastSeenByDevice)) {
     if (offlineNotifiedByDevice[id]) continue;
     if (now - last > c.offlineMin * 60000) {
-      offlineNotifiedByDevice[id] = true;
-      multicastToAll(line.flexAlert({
+      const sent = await multicastToAll(line.flexAlert({
         accent: '#f59e0b', title: `⚠️ ${id} ไม่ออนไลน์`,
         alt: `${id} ไม่ออนไลน์เกิน ${c.offlineMin} นาที`,
         device: id, time: fmtTime(Date.now()),
         extra: ['เห็นล่าสุด', fmtTime(last)],
         buttons: [{ label: '📊 เช็คสถานะ', text: 'สถานะ' }],
       }), 'offline:' + id);
+      // Only latch on success — otherwise a transient failure would mute all retries
+      if (sent) offlineNotifiedByDevice[id] = true;
     }
   }
   flushPendingLevels().catch(() => {});
