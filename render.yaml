@@ -12,6 +12,28 @@ services:
         sync: false
       - key: RESET_TOKEN
         sync: false
+      - key: LINE_ENABLED
+        value: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_REG_CODE
+        sync: false
+      - key: LINE_OFFLINE_MIN
+        value: 1
+      - key: LINE_COOLDOWN_MIN
+        value: 60
+      - key: LINE_MIN_INTERVAL_MIN
+        value: 3
+      - key: LINE_VALVE_ALERTS
+        value: false
+      - key: LINE_LEVEL_ALERTS
+        value: true
+      - key: SENSOR_API_KEY
+        sync: false
+      - key: RETENTION_DAYS
+        value: 30
       - key: TIDB_HOST
         sync: false
       - key: TIDB_PORT

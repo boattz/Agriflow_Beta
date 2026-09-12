@@ -7,6 +7,9 @@ data.json
 # Environment variables (contains secrets)
 .env
 
+# ESP32 secrets (SENSOR_API_KEY — never commit the real key)
+moisture-sensor_code/ESP32_SmartSprinkler/secrets.h
+
 # Dev tools
 .impeccable/
 
