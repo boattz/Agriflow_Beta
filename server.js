@@ -300,8 +300,10 @@ function soilLevel(moisture) {
 }
 
 // ── LINE Notify (multicast to registered subscribers) ──
-// Spec lock: valve flip + soil-level change → send; 3-min cooldown/device;
-// Very Dry (<20%) bypasses cooldown; offline (>OFFLINE_MIN) once + recovery.
+// Quota-sipping policy (free plan = 200 push/month, replies are free):
+// - valve flips → push only if LINE_VALVE_ALERTS=true (default false, dashboard shows live)
+// - soil-level change → push if LINE_LEVEL_ALERTS=true (default true, 3-min cooldown/device)
+// - Very Dry (<20%) → always push (60-min cooldown); offline (>OFFLINE_MIN) once + recovery.
 const lastValveByDevice = {};
 const lastLevelByDevice = {};
 const lastSeenByDevice = {};
@@ -387,9 +389,10 @@ function handleSensorNotify(reading) {
 
   if (valveChanged) {
     lastValveByDevice[id] = valve;
+    // Quota-saver: valve flips are dashboard-visible; push only if enabled.
     // Throttle repeats: a stuck-cycling valve must not machine-gun the
     // monthly LINE quota (free plan = 200 push/month, replies are free)
-    if (line.shouldNotify(keyBase + ':valve', minIntervalMs)) {
+    if (c.valveAlerts && line.shouldNotify(keyBase + ':valve', minIntervalMs)) {
       const opened = valve === 'OPEN';
       multicastToAll(line.flexAlert({
         accent: opened ? '#22c55e' : '#64748b',
@@ -405,7 +408,9 @@ function handleSensorNotify(reading) {
   if (levelChanged || isVeryDry) {
     const key = keyBase + ':level';
     const bypass = isVeryDry && line.shouldNotify(keyBase + ':crit', critCooldownMs);
-    if (bypass || line.shouldNotify(key, minIntervalMs)) {
+    // Very Dry bypasses the toggle (critical); normal level flaps obey it
+    const allowed = bypass || (c.levelAlerts && line.shouldNotify(key, minIntervalMs));
+    if (allowed) {
       if (levelLabel) lastLevelByDevice[id] = levelLabel;
       delete pendingLevelByDevice[id];
       multicastToAll(isVeryDry
@@ -425,8 +430,12 @@ function handleSensorNotify(reading) {
             buttons: alertButtons(valve),
           }), 'level:' + id + ':' + levelLabel);
     } else if (levelLabel) {
-      // flapping inside cooldown → remember latest, summarize later
-      pendingLevelByDevice[id] = { label: levelLabel, moisture, ts: reading.timestamp };
+      if (c.levelAlerts) {
+        // flapping inside cooldown → remember latest, summarize later
+        pendingLevelByDevice[id] = { label: levelLabel, moisture, ts: reading.timestamp };
+      } else {
+        lastLevelByDevice[id] = levelLabel; // silent track, no quota spent
+      }
     }
   }
 }

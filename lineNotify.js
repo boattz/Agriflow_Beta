@@ -17,6 +17,11 @@ function cfg() {
     offlineMin: Math.max(1, parseInt(process.env.LINE_OFFLINE_MIN || '1', 10) || 1),
     cooldownMin: Math.max(1, parseInt(process.env.LINE_COOLDOWN_MIN || '60', 10) || 60),
     minIntervalMin: Math.max(1, parseInt(process.env.LINE_MIN_INTERVAL_MIN || '3', 10) || 3),
+    // Quota-savers (free plan = 200 push/month; replies are free and unaffected):
+    // valve flips are dashboard-visible live, so push defaults OFF.
+    // Level changes stay ON (rare). Very Dry + offline/recovery always push.
+    valveAlerts: String(process.env.LINE_VALVE_ALERTS || 'false').toLowerCase() === 'true',
+    levelAlerts: String(process.env.LINE_LEVEL_ALERTS || 'true').toLowerCase() === 'true',
   };
 }
 
