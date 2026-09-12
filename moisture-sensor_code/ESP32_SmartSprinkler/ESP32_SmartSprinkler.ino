@@ -6,6 +6,15 @@
 #include <ESPmDNS.h>      // → http://agriflow.local
 #include "config_portal.h"   // WiFi + server IP via captive portal (NVS-persisted)
 
+// Optional API key (agriscan-style): copy secrets.h.example → secrets.h and
+// paste the key matching Render env SENSOR_API_KEY. Missing file = no key.
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+#ifndef SENSOR_API_KEY
+#define SENSOR_API_KEY ""
+#endif
+
 // ==================== Config (loaded from NVS) ===================
 DeviceConfig cfg;
 
@@ -13,6 +22,49 @@ DeviceConfig cfg;
 // Dashboard polls this directly when on the same WiFi (every 3s, plain HTTP).
 // Cloud push (Render) stays as history/LINE/config source.
 WebServer lanServer(80);
+
+// ==================== Cloud HTTPS (persistent — handshake once, reuse) ===================
+// Full TLS handshake every 15s kept failing (-1/-5). Reusing one connection
+// avoids it; broken conns are dropped and re-made on the next send.
+WiFiClientSecure cloudTls;
+HTTPClient cloudHttp;
+bool cloudBegun = false;
+
+void cloudEnd() {
+  if (cloudBegun) { cloudHttp.end(); cloudBegun = false; }
+  cloudTls.stop();
+}
+
+// Returns HTTP code (200/401/-1/-5…) or -10 if begin failed. 200 fills responseOut.
+int cloudPost(const String &json, String &responseOut) {
+  if (cfg.serverUrl.startsWith("https")) {
+    if (!cloudBegun) {
+      cloudTls.setInsecure();
+      cloudTls.setTimeout(15000);
+      cloudHttp.setReuse(true);
+      cloudHttp.setTimeout(15000);
+      if (!cloudHttp.begin(cloudTls, cfg.serverUrl)) return -10;
+      cloudBegun = true;
+    }
+    cloudHttp.addHeader("Content-Type", "application/json");
+    if (String(SENSOR_API_KEY).length() > 0) cloudHttp.addHeader("X-API-Key", SENSOR_API_KEY);
+    int code = cloudHttp.POST(json);
+    if (code == 200) { responseOut = cloudHttp.getString(); return code; }
+    cloudEnd(); // drop broken conn → fresh handshake next send
+    return code;
+  }
+  // Plain HTTP (local dev): one-shot, no reuse needed
+  HTTPClient http;
+  WiFiClient plain;
+  http.begin(plain, cfg.serverUrl);
+  http.addHeader("Content-Type", "application/json");
+  if (String(SENSOR_API_KEY).length() > 0) http.addHeader("X-API-Key", SENSOR_API_KEY);
+  http.setTimeout(15000);
+  int code = http.POST(json);
+  if (code == 200) responseOut = http.getString();
+  http.end();
+  return code;
+}
 
 // ==================== Sensor ==================
 const int moisturePin = 34;
@@ -29,7 +81,7 @@ int wateringMinutes = 3;
 // ==================== Servo (smooth, anti-jerk) ====================
 // Tune these to your valve: if 90 hits the hard stop, lower to ~70.
 const int VALVE_CLOSED_ANGLE = 0;
-const int VALVE_OPEN_ANGLE = 70;
+const int VALVE_OPEN_ANGLE = 90;
 const int SERVO_MIN_US = 500;
 const int SERVO_MAX_US = 2400;
 const int SERVO_STEP_DEG = 2;      // deg per step
@@ -250,7 +302,27 @@ void handleLocalValve() {
   }
 }
 
+// Lite status page (agriscan-style self-contained): open http://agriflow.local/
+void handleLocalRoot() {
+  lanServer.sendHeader("Access-Control-Allow-Origin", "*");
+  int rawValue = analogRead(moisturePin);
+  int moisturePercent = constrain(map(rawValue, dryValue, wetValue, 0, 100), 0, 100);
+  String html = "<!DOCTYPE html><html lang='th'><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<meta http-equiv='refresh' content='5'>"
+    "<title>Agriflow (ESP32)</title></head>"
+    "<body style='font-family:sans-serif;background:#040810;color:#e8f4f0;text-align:center;padding:32px'>"
+    "<h1>🌱 Agriflow — ESP32 ตรง</h1>"
+    "<p style='font-size:3rem;margin:8px'> " + String(moisturePercent) + "%</p>"
+    "<p>Raw " + String(rawValue) + " | วาล์ว " + String(valveOpen ? "OPEN 🟢" : "CLOSE ⚪") + "</p>"
+    "<p>เกณฑ์ &lt;" + String(openThreshold) + "% · รด " + String(wateringMinutes) + " นาที</p>"
+    "<p><a style='color:#38eb9c' href='/local-data'>JSON</a> · <a style='color:#38eb9c' href='https://agriflow-mvt7.onrender.com/'>dashboard หลัก</a></p>"
+    "</body></html>";
+  lanServer.send(200, "text/html", html);
+}
+
 void startLanServer() {
+  lanServer.on("/", HTTP_GET, handleLocalRoot);
   lanServer.on("/local-data", HTTP_GET, handleLocalData);
   lanServer.on("/local-data", HTTP_OPTIONS, handleLocalOptions);
   lanServer.on("/local-valve", HTTP_POST, handleLocalValve);
@@ -275,6 +347,14 @@ void setup() {
   servoAttached = true;
   valveServo.write(currentAngle);
   delay(500);
+
+  // Boot self-test: sweep 0 → 70 → 0 so a dead servo/power issue is obvious
+  Serial.println("[SERVO] Self-test: sweeping...");
+  for (int a = 0; a <= VALVE_OPEN_ANGLE; a += 5) { valveServo.write(a); delay(40); }
+  delay(300);
+  for (int a = VALVE_OPEN_ANGLE; a >= 0; a -= 5) { valveServo.write(a); delay(40); }
+  currentAngle = VALVE_CLOSED_ANGLE;
+  Serial.println("[SERVO] Self-test done");
   servoRelax();
 
   // Reset button is on the BOOT pin.
@@ -404,6 +484,7 @@ void loop() {
     Serial.print(" | Threshold: ");Serial.print(openThreshold); Serial.print("%");
     Serial.print(" | Water: ");   Serial.print(wateringMinutes); Serial.print("min");
     Serial.print(" | Valve: ");   Serial.print(valveOpen ? "OPEN" : "CLOSE");
+    Serial.print(" | RSSI: ");    Serial.print(WiFi.RSSI()); Serial.print("dBm");
 
     if (valveOpen) {
       unsigned long remain = ((unsigned long)wateringMinutes * 60000UL - (millis() - valveStartTime)) / 1000UL;
@@ -438,30 +519,19 @@ void loop() {
     int httpCode = 0;
     int retries = 0;
     while (httpCode != 200 && retries <= 3) {
-      HTTPClient http;
-      WiFiClientSecure secureClient;
-      WiFiClient plainClient;
-
-      if (cfg.serverUrl.startsWith("https")) {
-        secureClient.setInsecure();
-        secureClient.setTimeout(15000);
-        http.begin(secureClient, cfg.serverUrl);
-      } else {
-        http.begin(plainClient, cfg.serverUrl);
-      }
-      http.addHeader("Content-Type", "application/json");
-      http.setTimeout(15000);
-
-      httpCode = http.POST(json);
+      String response;
+      httpCode = cloudPost(json, response);
 
       if (httpCode == 200) {
-        String response = http.getString();
         parseConfig(response);
         Serial.println("[OK] Sent + config synced");
+      } else if (httpCode == 401) {
+        // Wrong/missing key never fixes itself by retrying — stop and say so
+        Serial.println("[ERR] HTTP 401 — X-API-Key ไม่ตรงกับ server (เช็ค secrets.h + Render env SENSOR_API_KEY)");
+        break;
       } else {
         Serial.print("[ERR] HTTP "); Serial.println(httpCode);
       }
-      http.end();
 
       if (httpCode != 200 && retries < 3) {
         retries++;

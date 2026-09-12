@@ -14,7 +14,7 @@ function cfg() {
     token: process.env.LINE_CHANNEL_ACCESS_TOKEN || '',
     secret: process.env.LINE_CHANNEL_SECRET || '',
     regCode: process.env.LINE_REG_CODE || '',
-    offlineMin: Math.max(2, parseInt(process.env.LINE_OFFLINE_MIN || '10', 10) || 10),
+    offlineMin: Math.max(1, parseInt(process.env.LINE_OFFLINE_MIN || '1', 10) || 1),
     cooldownMin: Math.max(1, parseInt(process.env.LINE_COOLDOWN_MIN || '60', 10) || 60),
     minIntervalMin: Math.max(1, parseInt(process.env.LINE_MIN_INTERVAL_MIN || '3', 10) || 3),
   };

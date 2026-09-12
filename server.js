@@ -155,6 +155,7 @@ async function connectDB() {
     client.release();
     dbReady = true;
     console.log('[DB] Tables ready');
+    cleanupOldReadings().catch(() => {}); // delete once at boot (agriscan-style)
   } catch (err) {
     console.error('[DB] Connection failed:', err.message);
     console.log('[DB] Retrying in 5 seconds...');
@@ -163,6 +164,34 @@ async function connectDB() {
 }
 
 connectDB();
+
+// ── Data retention (agriscan-style): DELETE readings older than RETENTION_DAYS ──
+// Runs once at boot + every CLEANUP_EVERY inserts (not every insert — saves resources)
+const RETENTION_DAYS = Math.max(1, parseInt(process.env.RETENTION_DAYS || '30', 10) || 30);
+const CLEANUP_EVERY = 50;
+let insertCounter = 0;
+
+async function cleanupOldReadings() {
+  if (!dbReady) return;
+  try {
+    const r = await pool.query(
+      `DELETE FROM readings WHERE created_at < NOW() - ($1 || ' days')::interval`,
+      [String(RETENTION_DAYS)]
+    );
+    console.log(`[DB] Retention: deleted ${r.rowCount} readings older than ${RETENTION_DAYS}d`);
+  } catch (err) {
+    console.error('[DB] Retention cleanup failed:', err.message);
+  }
+}
+
+// ── Ingest auth (agriscan-style X-API-Key) ──
+// Set SENSOR_API_KEY on server + matching key in ESP32 secrets.h.
+// When unset (default) the endpoint stays open for backward compatibility.
+const SENSOR_API_KEY = process.env.SENSOR_API_KEY || '';
+function checkSensorAuth(req) {
+  if (!SENSOR_API_KEY) return true;
+  return req.headers['x-api-key'] === SENSOR_API_KEY;
+}
 
 // ── Crop profiles (research-backed presets) ──
 // threshold = open valve when moisture drops below (%). minutes = watering duration estimate.
@@ -245,7 +274,7 @@ async function saveConfig() {
 }
 
 // ── Keep-Alive Ping ──────────────────────────
-const KEEP_ALIVE_INTERVAL = 10 * 60 * 1000;
+const KEEP_ALIVE_INTERVAL = 5 * 60 * 1000;
 const KEEP_ALIVE_URL = process.env.RENDER_EXTERNAL_URL || `https://agriflow-mvt7.onrender.com`;
 
 setInterval(() => {
@@ -433,7 +462,7 @@ async function checkOfflineDevices() {
   }
   flushPendingLevels().catch(() => {});
 }
-setInterval(checkOfflineDevices, 60000);
+setInterval(checkOfflineDevices, 30000);
 
 // ── LINE webhook (OA → /api/line/webhook) ────
 app.post('/api/line/webhook', async (req, res) => {
@@ -762,6 +791,9 @@ async function handleLineMessage(userId, replyToken, rawText) {
 
 // ── POST /api/sensor ─────────────────────────
 app.post('/api/sensor', rateLimit(60, 60000), async (req, res) => {
+  if (!checkSensorAuth(req)) {
+    return res.status(401).json({ error: 'Invalid X-API-Key (set SENSOR_API_KEY on server + secrets.h on ESP32)' });
+  }
   const {
     raw, moisture, valve, device, threshold, wateringMinutes: wm,
     humidity, temperature, heatIndex
@@ -807,6 +839,7 @@ app.post('/api/sensor', rateLimit(60, 60000), async (req, res) => {
          level?.label || null, level?.color || null,
          reading.humidity, reading.temperature, reading.heatIndex]
       );
+      if (++insertCounter % CLEANUP_EVERY === 0) cleanupOldReadings().catch(() => {});
     } catch (err) {
       console.error('[DB] Save reading failed:', err.message);
     }
@@ -916,7 +949,7 @@ function localIP() {
   return 'localhost';
 }
 
-app.listen(PORT, '0.0.0.0', async () => {
+const server = app.listen(PORT, '0.0.0.0', async () => {
   await loadConfig();
   const ip = localIP();
   console.log('');
@@ -932,3 +965,7 @@ app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Config: Open <${config.openThreshold}% | Water ${config.wateringMinutes} min (${config.cropId})`);
   console.log('');
 });
+// Keep ESP32 TLS connections alive across 15s sends (handshake once, reuse).
+// Must exceed the send interval or the server closes idle conns first.
+server.keepAliveTimeout = 30000;
+server.headersTimeout = 35000;

@@ -13,6 +13,7 @@ let currentConfig = { wateringMinutes: 3, openThreshold: 40, cropId: 'custom', v
 let pendingConfig = null;
 let lastValveState = 'CLOSE';
 let isOffline = false;
+var serverUp = false; // true when cloud server reachable (for stale-vs-offline badge)
 let lastReadingTime = null;
 let clockInterval = null;
 let firstReading = true;
@@ -70,6 +71,7 @@ function hideClock() {
 }
 
 function setStatus(state) {
+  serverUp = (state === 'online');
   document.getElementById('status-dot').className = 'dot ' + state;
   document.getElementById('status-txt').textContent = state === 'online' ? 'Connected' : state === 'offline' ? 'Disconnected' : 'Connecting';
   if (state === 'offline') { hideClock(); showToast('Server', 'Disconnected'); }
@@ -99,7 +101,8 @@ function updateLastSeen() {
   var newState = diff < 60 ? 'online' : 'offline';
   if (newState !== lastSeenState) {
     dot.className = 'dot ' + newState;
-    txt.textContent = newState === 'online' ? 'Connected' : 'Disconnected';
+    // agriscan-style: server up but data old = stale (ข้อมูลเก่า), else disconnected
+    txt.textContent = newState === 'online' ? 'Connected' : (serverUp ? 'ข้อมูลเก่า' : 'Disconnected');
     lastSeenState = newState;
     if (newState === 'offline') {
       lastVal.textContent = '—';
@@ -107,7 +110,13 @@ function updateLastSeen() {
       return;
     }
   }
-  if (newState === 'offline') return;
+  if (newState === 'offline') {
+    if (serverUp && lastSeenState === 'offline') {
+      var ageTxt = diff < 3600 ? 'ข้อมูลเก่า ' + Math.floor(diff / 60) + ' นาที' : 'ข้อมูลเก่า ' + Math.floor(diff / 3600) + ' ชม.';
+      if (txt.textContent !== ageTxt) txt.textContent = ageTxt;
+    }
+    return;
+  }
   if (lastSeenState === 'online') {
     var wantTxt = 'Connected' + (isLanFresh() ? ' · LAN' : '');
     if (txt.textContent !== wantTxt) txt.textContent = wantTxt;

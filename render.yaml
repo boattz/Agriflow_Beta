@@ -21,11 +21,15 @@ services:
       - key: LINE_REG_CODE
         sync: false
       - key: LINE_OFFLINE_MIN
-        value: 10
+        value: 1
       - key: LINE_COOLDOWN_MIN
         value: 60
       - key: LINE_MIN_INTERVAL_MIN
         value: 3
+      - key: SENSOR_API_KEY
+        sync: false
+      - key: RETENTION_DAYS
+        value: 30
       - key: TIDB_HOST
         sync: false
       - key: TIDB_PORT
