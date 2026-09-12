@@ -350,6 +350,7 @@ function handleSensorNotify(reading) {
   const c = line.cfg();
   const id = reading.device || 'ESP32';
   const now = Date.now();
+  const valve = String(reading.valve || 'CLOSE');
   lastSeenByDevice[id] = now;
   // Device back online → recovery notice (only if we previously flagged offline)
   if (offlineNotifiedByDevice[id]) {
@@ -361,7 +362,6 @@ function handleSensorNotify(reading) {
     }), 'recovery:' + id);
   }
 
-  const valve = String(reading.valve || 'CLOSE');
   const levelLabel = (reading.level && reading.level.label) || null;
   const moisture = reading.moisture;
   const prevValve = lastValveByDevice[id];
@@ -447,6 +447,21 @@ async function checkOfflineDevices() {
   if (!line.isLineEnabled() || !dbReady) return;
   const c = line.cfg();
   const now = Date.now();
+  // Seed from DB so a restart/redeploy doesn't blind offline detection
+  // (lastSeenByDevice is in-memory and wiped on reboot)
+  try {
+    const r = await pool.query(
+      `SELECT device, MAX(created_at) AS last FROM readings GROUP BY device`
+    );
+    for (const row of r.rows) {
+      const t = new Date(row.last).getTime();
+      if (!Number.isNaN(t) && (!lastSeenByDevice[row.device] || t > lastSeenByDevice[row.device])) {
+        lastSeenByDevice[row.device] = t;
+      }
+    }
+  } catch (err) {
+    console.error('[LINE] offline seed failed:', err.message);
+  }
   for (const [id, last] of Object.entries(lastSeenByDevice)) {
     if (offlineNotifiedByDevice[id]) continue;
     if (now - last > c.offlineMin * 60000) {
